@@ -1,0 +1,32 @@
+[package]
+name = "rust-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+# Optional binary for desktop testing
+[[bin]]
+name = "rn-audible-cli"
+path = "src/bin/cli.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+cli = ["clap", "tokio/full"]
+
+[dependencies]
+uniffi = "0.28"
+jni = { version = "0.21", optional = true }
+
+# CLI dependencies (desktop only)
+clap = { version = "4.5", features = ["derive"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+tempfile = "3.13"

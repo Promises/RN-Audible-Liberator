@@ -39,3 +39,26 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Module build artifacts
+modules/**/android/build/
+modules/**/ios/build/
+*.class
+*.dex
+*.bin
+
+# Rust
+native/rust-core/target/
+native/rust-core/Cargo.lock
+*.so
+*.dylib
+*.dll
+
+# References
+references/
+
+# Test fixtures with sensitive data
+tests/fixtures/test_account.json
+.env.test
+*.aax
+*.aaxc

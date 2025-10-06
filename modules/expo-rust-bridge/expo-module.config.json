@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": ["expo.modules.rustbridge.ExpoRustBridgeModule"]
+  },
+  "ios": {
+    "modules": ["ExpoRustBridgeModule"]
+  }
+}

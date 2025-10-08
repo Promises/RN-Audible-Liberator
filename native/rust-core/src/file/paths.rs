@@ -1,4 +1,4 @@
-// RN Audible - React Native Audible Client
+// LibriSync - Audible Library Sync for Mobile
 // Copyright (C) 2025 Henning Berge
 //
 // This program is a Rust port of Libation (https://github.com/rmcrackan/Libation)
@@ -285,7 +285,7 @@ pub fn get_default_library_path() -> PathBuf {
             let mut path = PathBuf::from(home);
             path.push("Library");
             path.push("Application Support");
-            path.push("RN Audible");
+            path.push("LibriSync");
             path.push("Library");
             return path;
         }
@@ -298,7 +298,7 @@ pub fn get_default_library_path() -> PathBuf {
             let mut path = PathBuf::from(home);
             path.push(".local");
             path.push("share");
-            path.push("rn-audible");
+            path.push("librisync");
             path.push("library");
             return path;
         }
@@ -309,7 +309,7 @@ pub fn get_default_library_path() -> PathBuf {
     {
         if let Some(appdata) = std::env::var_os("APPDATA") {
             let mut path = PathBuf::from(appdata);
-            path.push("RN Audible");
+            path.push("LibriSync");
             path.push("Library");
             return path;
         }
@@ -320,7 +320,7 @@ pub fn get_default_library_path() -> PathBuf {
     {
         // Android: Use app-specific directory
         // This will need to be passed from Java/Kotlin layer
-        PathBuf::from("/data/data/com.rnaudible/files/library")
+        PathBuf::from("/data/data/com.librisync/files/library")
     }
 
     #[cfg(target_os = "ios")]

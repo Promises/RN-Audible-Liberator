@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   localeButtonSelected: {
-    backgroundColor: colors.accentDim,
+    backgroundColor: colors.backgroundTertiary,
     borderColor: colors.accent,
   },
   localeContent: {

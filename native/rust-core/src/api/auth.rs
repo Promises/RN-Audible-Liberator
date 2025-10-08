@@ -1,4 +1,4 @@
-// RN Audible - React Native Audible Client
+// LibriSync - Audible Library Sync for Mobile
 // Copyright (C) 2025 Henning Berge
 //
 // This program is a Rust port of Libation (https://github.com/rmcrackan/Libation)
@@ -1397,7 +1397,7 @@ pub async fn exchange_authorization_code(
 
     // Try to save to app's cache directory (writable)
     let cache_paths = [
-        "/data/data/com.rnaudible.app/cache/registration.json",
+        "/data/data/com.librisync.app/cache/registration.json",
         "/sdcard/Download/audible_registration.json",
     ];
 
@@ -2245,7 +2245,7 @@ mod tests {
                 println!("Expected callback format:");
                 println!("  https://localhost/callback?openid.oa2.authorization_code=ABC123&openid.oa2.state=XYZ789");
                 println!("Or:");
-                println!("  rnaudible://callback?code=ABC123&state=XYZ789");
+                println!("  librisync://callback?code=ABC123&state=XYZ789");
                 panic!("Callback parsing failed - check the URL format");
             }
         }

@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Alert, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import LoginScreen from './LoginScreen';
+import Button from '../components/Button';
 import { syncLibrary, initializeDatabase, refreshToken, getBooks, getCustomerInformation } from '../../modules/expo-rust-bridge';
 import type { Account } from '../../modules/expo-rust-bridge';
 import { Paths } from 'expo-file-system';
+import { colors, spacing, typography } from '../styles/theme';
 
 export default function SimpleAccountScreen() {
   const [account, setAccount] = useState<Account | null>(null);
@@ -360,7 +362,7 @@ export default function SimpleAccountScreen() {
           <View style={styles.statusRow}>
             <View style={[
               styles.statusIndicator,
-              { backgroundColor: connectionStatus === 'connected' ? '#00ff00' : connectionStatus === 'error' ? '#ff3b30' : '#888888' }
+              { backgroundColor: connectionStatus === 'connected' ? colors.success : connectionStatus === 'error' ? colors.error : colors.textSecondary }
             ]} />
             <Text style={styles.value}>
               {connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'error' ? 'Connection Error' : 'Checking...'}
@@ -389,15 +391,14 @@ export default function SimpleAccountScreen() {
                 Time remaining: {formatTimeRemaining(timeRemaining)}
               </Text>
             )}
-            <TouchableOpacity
-              style={[styles.button, styles.refreshTokenButton]}
+            <Button
+              title="Refresh Token"
               onPress={handleRefreshToken}
-              disabled={isRefreshingToken}
-            >
-              <Text style={styles.buttonText}>
-                {isRefreshingToken ? 'Refreshing...' : 'Refresh Token'}
-              </Text>
-            </TouchableOpacity>
+              variant="outlined"
+              state="primary"
+              loading={isRefreshingToken}
+              style={{ marginTop: spacing.sm }}
+            />
           </View>
         )}
 
@@ -423,24 +424,22 @@ export default function SimpleAccountScreen() {
           </View>
         )}
 
-        <TouchableOpacity
-          style={[styles.button, styles.syncButton]}
+        <Button
+          title={isSyncing ? 'Syncing...' : syncStats ? 'Sync Again' : 'Sync Library'}
           onPress={handleSyncLibrary}
+          variant="filled"
+          state="warning"
           disabled={isSyncing}
-        >
-          <Text style={styles.buttonText}>
-            {isSyncing ? 'Syncing...' : syncStats ? 'Sync Again' : 'Sync Library'}
-          </Text>
-        </TouchableOpacity>
+          style={{ marginTop: spacing.sm }}
+        />
 
-        <TouchableOpacity
-          style={[styles.button, styles.logoutButton]}
+        <Button
+          title="Log Out"
           onPress={handleLogout}
-        >
-          <Text style={[styles.buttonText, styles.logoutButtonText]}>
-            Log Out
-          </Text>
-        </TouchableOpacity>
+          variant="outlined"
+          state="error"
+          style={{ marginTop: spacing.sm }}
+        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -449,41 +448,36 @@ export default function SimpleAccountScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.background,
   },
   content: {
-    padding: 20,
+    padding: spacing.lg,
     flexGrow: 1,
   },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 24,
+    ...typography.title,
+    marginBottom: spacing.lg,
   },
   card: {
-    backgroundColor: '#2a2a2a',
-    padding: 16,
+    backgroundColor: colors.backgroundSecondary,
+    padding: spacing.md,
     borderRadius: 8,
-    marginBottom: 12,
+    marginBottom: spacing.sm,
     borderWidth: 1,
-    borderColor: '#333333',
+    borderColor: colors.border,
   },
   label: {
-    fontSize: 12,
-    color: '#888888',
-    marginBottom: 4,
+    ...typography.caption,
+    marginBottom: spacing.xs,
     textTransform: 'uppercase',
   },
   value: {
-    fontSize: 16,
-    color: '#ffffff',
+    ...typography.body,
     fontWeight: '600',
   },
   caption: {
-    fontSize: 12,
-    color: '#888888',
-    marginTop: 4,
+    ...typography.caption,
+    marginTop: spacing.xs,
   },
   statusRow: {
     flexDirection: 'row',
@@ -493,36 +487,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#00ff00',
-    marginRight: 8,
-  },
-  button: {
-    backgroundColor: '#2a2a2a',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#333333',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  syncButton: {
-    backgroundColor: '#ff9500',
-    borderColor: '#ff9500',
-  },
-  refreshTokenButton: {
-    marginTop: 8,
-    backgroundColor: '#2a2a2a',
-    borderColor: '#00ff00',
-  },
-  logoutButton: {
-    borderColor: '#ff3b30',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ffffff',
-  },
-  logoutButtonText: {
-    color: '#ff3b30',
+    backgroundColor: colors.success,
+    marginRight: spacing.sm,
   },
 });

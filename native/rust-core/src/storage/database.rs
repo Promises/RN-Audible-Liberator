@@ -1,4 +1,4 @@
-// RN Audible - React Native Audible Client
+// LibriSync - Audible Library Sync for Mobile
 // Copyright (C) 2025 Henning Berge
 //
 // This program is a Rust port of Libation (https://github.com/rmcrackan/Libation)
@@ -28,9 +28,9 @@
 //! - `DataLayer/LibationContextFactory.cs` - Context factory
 //!
 //! # Database Location
-//! - Desktop (macOS): ~/Library/Application Support/RNAudible/database.db
-//! - Desktop (Linux): ~/.local/share/RNAudible/database.db
-//! - Desktop (Windows): %APPDATA%/RNAudible/database.db
+//! - Desktop (macOS): ~/Library/Application Support/LibriSync/database.db
+//! - Desktop (Linux): ~/.local/share/LibriSync/database.db
+//! - Desktop (Windows): %APPDATA%/LibriSync/database.db
 //! - Android: app-specific data directory (context.getDatabasePath())
 //! - iOS: app-specific documents directory
 //!
@@ -194,9 +194,9 @@ impl Database {
     /// Get default database path for the platform
     ///
     /// Returns platform-specific application data directory path:
-    /// - macOS: ~/Library/Application Support/RNAudible/database.db
-    /// - Linux: ~/.local/share/RNAudible/database.db
-    /// - Windows: %APPDATA%/RNAudible/database.db
+    /// - macOS: ~/Library/Application Support/LibriSync/database.db
+    /// - Linux: ~/.local/share/LibriSync/database.db
+    /// - Windows: %APPDATA%/LibriSync/database.db
     ///
     /// Note: For Android/iOS, use platform-specific APIs to get app data directory
     pub fn get_default_path() -> PathBuf {
@@ -206,7 +206,7 @@ impl Database {
             PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
-                .join("RNAudible")
+                .join("LibriSync")
                 .join("database.db")
         }
 
@@ -216,7 +216,7 @@ impl Database {
             PathBuf::from(home)
                 .join(".local")
                 .join("share")
-                .join("RNAudible")
+                .join("LibriSync")
                 .join("database.db")
         }
 
@@ -224,7 +224,7 @@ impl Database {
         {
             let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
             PathBuf::from(appdata)
-                .join("RNAudible")
+                .join("LibriSync")
                 .join("database.db")
         }
 
@@ -232,7 +232,7 @@ impl Database {
         {
             // For Android, this should be overridden by the app
             // Use context.getDatabasePath("database.db") from Java/Kotlin
-            PathBuf::from("/data/data/com.rnaudible/databases/database.db")
+            PathBuf::from("/data/data/com.librisync/databases/database.db")
         }
 
         #[cfg(target_os = "ios")]

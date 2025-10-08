@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(26, 26, 26, 0.8)',
+    backgroundColor: `${colors.background}CC`, // 80% opacity
     zIndex: 1,
   },
   loadingText: {

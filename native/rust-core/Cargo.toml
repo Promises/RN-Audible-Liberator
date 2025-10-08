@@ -8,7 +8,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 # Optional binary for desktop testing
 [[bin]]
-name = "rn-audible-cli"
+name = "librisync-cli"
 path = "src/bin/cli.rs"
 required-features = ["cli"]
 

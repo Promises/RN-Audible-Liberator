@@ -17,7 +17,7 @@ PLATFORM="${1:-android}"
 DEVICE_TYPE="${2:-}"
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}RN Audible - Test and Run${NC}"
+echo -e "${BLUE}LibriSync - Test and Run${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 # Step 1: Run Rust tests

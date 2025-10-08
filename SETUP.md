@@ -9,7 +9,7 @@
 
 ### 2. UI Component (App.tsx)
 - Dark-themed Hello World screen
-- Title: "RN Audible"
+- Title: "LibriSync"
 - Subtitle: "Libation Port for Mobile"
 - Message display box showing Rust native module output
 - Interactive button to call Rust module

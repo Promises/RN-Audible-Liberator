@@ -309,7 +309,7 @@ No additional npm dependencies needed.
 
 ## License
 
-Part of the RN Audible project. See project root for license information.
+Part of the LibriSync project. See project root for license information.
 
 ## Contributing
 

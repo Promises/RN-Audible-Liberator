@@ -107,7 +107,7 @@ cargo build --target aarch64-linux-android --release
 
 1. **Open the file:**
    ```bash
-   cd /Users/henningberge/Documents/projects/rn-audible/native/rust-core
+   cd /Users/henningberge/Documents/projects/librisync/native/rust-core
    code src/api/auth.rs  # or vim, nano, etc.
    ```
 

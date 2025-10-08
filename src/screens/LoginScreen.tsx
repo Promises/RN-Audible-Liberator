@@ -10,6 +10,7 @@ import {
 } from '../../modules/expo-rust-bridge';
 import type { Account, Locale } from '../../modules/expo-rust-bridge';
 import * as SecureStore from 'expo-secure-store';
+import { colors, spacing, typography } from '../styles/theme';
 
 interface LoginScreenProps {
   onLoginSuccess: (account: Account) => void;
@@ -214,14 +215,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           />
           {isLoading && (
             <View style={styles.loadingOverlay}>
-              <ActivityIndicator size="large" color="#ff9500" />
+              <ActivityIndicator size="large" color={colors.accent} />
               <Text style={styles.statusText}>{status}</Text>
             </View>
           )}
         </>
       ) : (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#ff9500" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.statusText}>{status}</Text>
         </View>
       )}
@@ -265,7 +266,7 @@ function getLocaleDomain(code: string): string {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.background,
   },
   webView: {
     flex: 1,
@@ -274,7 +275,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: spacing.lg,
   },
   loadingOverlay: {
     position: 'absolute',
@@ -282,15 +283,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(26, 26, 26, 0.9)',
+    backgroundColor: `${colors.background}E6`, // 90% opacity
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
   },
   statusText: {
-    color: '#ffffff',
-    fontSize: 16,
-    marginTop: 16,
+    ...typography.body,
+    marginTop: spacing.md,
     textAlign: 'center',
   },
 });

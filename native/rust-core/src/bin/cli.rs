@@ -1,4 +1,4 @@
-// RN Audible - React Native Audible Client
+// LibriSync - Audible Library Sync for Mobile
 // Copyright (C) 2025 Henning Berge
 //
 // This program is a Rust port of Libation (https://github.com/rmcrackan/Libation)
@@ -22,8 +22,8 @@ use clap::{Parser, Subcommand};
 use rust_core::log_from_rust;
 
 #[derive(Parser)]
-#[command(name = "rn-audible-cli")]
-#[command(about = "RN Audible CLI - Desktop testing tool", long_about = None)]
+#[command(name = "librisync-cli")]
+#[command(about = "LibriSync CLI - Desktop testing tool", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

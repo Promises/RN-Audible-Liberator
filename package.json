@@ -1,5 +1,5 @@
 {
-  "name": "rn-audible-app",
+  "name": "librisync",
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
@@ -16,7 +16,7 @@
     "test:rust:desktop": "./scripts/test-rust-desktop.sh",
     "test:android": "./scripts/test-and-run.sh android",
     "test:ios": "./scripts/test-and-run.sh ios",
-    "rust:cli": "cd native/rust-core && cargo run --features cli --bin rn-audible-cli --",
+    "rust:cli": "cd native/rust-core && cargo run --features cli --bin librisync-cli --",
     "rust:example": "cd native/rust-core && cargo run --example",
     "rust:doc": "cd native/rust-core && cargo doc --open",
     "rust:fmt": "cd native/rust-core && cargo fmt",

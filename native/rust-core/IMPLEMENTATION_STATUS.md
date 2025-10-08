@@ -1,4 +1,4 @@
-# RN Audible Rust Core - Implementation Status
+# LibriSync Rust Core - Implementation Status
 
 **Date:** 2025-10-07
 **Status:** Phase 1 Complete + OAuth Authentication & Library Sync Working!

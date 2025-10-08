@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RN Audible is a React Native mobile app powered by **`libaudible`** - a direct Rust library port of Libation (an Audible client and DRM remover). The Rust library (`native/rust-core/`) is a complete 1:1 translation of Libation's C# codebase, maintaining the same architecture, data models, and business logic. This library is then embedded in a React Native app via JNI (Android) and C FFI (iOS) bindings.
+LibriSync is a React Native mobile app powered by **`libaudible`** - a direct Rust library port of Libation (an Audible client and DRM remover). The Rust library (`native/rust-core/`) is a complete 1:1 translation of Libation's C# codebase, maintaining the same architecture, data models, and business logic. This library is then embedded in a React Native app via JNI (Android) and C FFI (iOS) bindings.
+
+**Project URL:** [librisync.henning.tech](https://librisync.henning.tech)
 
 **Key Principle:** This is a **direct port**, not a rewrite. Each Rust module corresponds to a Libation C# component in `references/Libation/Source/`, and functionality is ported method-by-method to ensure feature parity.
 
@@ -117,14 +119,20 @@ src/
 
 ### Styling Approach
 
-The project uses StyleSheet API for styling. Consistent dark theme is defined in `src/styles/theme.ts`:
-- Background: `#1a1a1a`
-- Secondary background: `#2a2a2a`
-- Primary text: `#ffffff`
-- Secondary text: `#888888`
-- Accent (monospace text): `#00ff00`
+The project uses the **Nord color theme** - a beautiful arctic-inspired color palette. All styling uses the StyleSheet API with centralized theme management in `src/styles/theme.ts`.
 
-Prefer StyleSheet over inline styles for maintainability and performance.
+**Theme Structure:**
+- **Colors**: Nord palette (Polar Night backgrounds, Snow Storm text, Frost accents, Aurora status colors)
+- **Spacing**: Consistent spacing scale (xs: 4px, sm: 8px, md: 16px, lg: 24px, xl: 32px)
+- **Typography**: Predefined text styles (title, subtitle, body, caption, mono)
+
+**Key Principles:**
+- ALWAYS import and use theme constants: `import { colors, spacing, typography } from '../styles/theme'`
+- NEVER use hardcoded colors, spacing, or font sizes
+- Use semantic color names (e.g., `colors.error`, `colors.success`) for status indicators
+- Prefer StyleSheet over inline styles for maintainability and performance
+
+See `THEME.md` for complete color palette and usage guidelines.
 
 ### Reference Implementation & Porting Methodology
 

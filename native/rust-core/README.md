@@ -4,7 +4,7 @@ Shared Rust implementation of Libation functionality for both Android and iOS pl
 
 ## Overview
 
-This library provides the core business logic for the RN Audible app, including:
+This library provides the core business logic for the LibriSync app, including:
 - Audible API authentication (OAuth 2.0 with PKCE)
 - Library synchronization and management
 - AAX/AAXC DRM decryption

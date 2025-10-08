@@ -1,4 +1,4 @@
-# RN Audible - Development Progress
+# LibriSync - Development Progress
 
 > **Last Updated:** October 8, 2025
 >

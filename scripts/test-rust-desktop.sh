@@ -14,7 +14,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUST_DIR="$PROJECT_ROOT/native/rust-core"
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}RN Audible - Rust Desktop Testing${NC}"
+echo -e "${BLUE}LibriSync - Rust Desktop Testing${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
 cd "$RUST_DIR"
@@ -30,7 +30,7 @@ fi
 
 # Step 2: Build CLI tool
 echo -e "${YELLOW}Step 2: Building CLI tool...${NC}"
-if cargo build --features cli --bin rn-audible-cli; then
+if cargo build --features cli --bin librisync-cli; then
     echo -e "${GREEN}✓ CLI tool built successfully${NC}\n"
 else
     echo -e "${RED}✗ CLI build failed${NC}"
@@ -39,7 +39,7 @@ fi
 
 # Step 3: Run CLI test
 echo -e "${YELLOW}Step 3: Testing CLI...${NC}"
-if cargo run --features cli --bin rn-audible-cli -- test --message "Desktop test"; then
+if cargo run --features cli --bin librisync-cli -- test --message "Desktop test"; then
     echo -e "${GREEN}✓ CLI test passed${NC}\n"
 else
     echo -e "${RED}✗ CLI test failed${NC}"
@@ -76,7 +76,7 @@ echo -e "${GREEN}✓ All desktop tests passed!${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 echo -e "\n${BLUE}Available commands:${NC}"
-echo -e "  ${YELLOW}cargo run --features cli --bin rn-audible-cli -- --help${NC}"
+echo -e "  ${YELLOW}cargo run --features cli --bin librisync-cli -- --help${NC}"
 echo -e "  ${YELLOW}cargo run --example basic_test${NC}"
 echo -e "  ${YELLOW}cargo test${NC}"
 echo -e "  ${YELLOW}cargo doc --open${NC}"

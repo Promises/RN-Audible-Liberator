@@ -1,13 +1,15 @@
-# RN Audible
+# LibriSync
 
 A React Native mobile app powered by a **direct Rust port of [Libation](https://github.com/rmcrackan/Libation)** - bringing Audible library management and DRM removal to iOS and Android.
+
+**Project URL:** [librisync.henning.tech](https://librisync.henning.tech)
 
 **Project Goal:** Create a 1:1 Rust library port (`libaudible`) of Libation's C# codebase, then embed it in a React Native mobile application via native bindings.
 
 ## Project Structure
 
 ```
-rn-audible/
+librisync/
 ├── App.tsx                      # Main React Native app
 ├── modules/
 │   └── expo-rust-bridge/        # TypeScript bridge to Rust native code
@@ -174,7 +176,7 @@ This project is licensed under the **GNU General Public License v3.0** (GPL-3.0)
 
 ### Attribution
 
-**RN Audible** is a Rust port of [Libation](https://github.com/rmcrackan/Libation), an Audible audiobook manager and DRM removal tool.
+**LibriSync** is a Rust port of [Libation](https://github.com/rmcrackan/Libation), an Audible audiobook manager and DRM removal tool.
 
 - **Original work**: Copyright (C) Libation contributors
 - **Rust port**: Copyright (C) 2025 Henning Berge

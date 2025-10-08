@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "RN Audible",
-    "slug": "rn-audible-app",
+    "name": "LibriSync",
+    "slug": "librisync",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,14 +14,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rnaudible.app"
+      "bundleIdentifier": "tech.henning.librisync"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a1a"
       },
-      "package": "com.rnaudible.app",
+      "package": "tech.henning.librisync",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },

@@ -1,4 +1,4 @@
-# RN Audible - Project Overview & Status
+# LibriSync - Project Overview & Status
 
 **Analysis Date:** October 8, 2025  
 **Git Branch:** main  

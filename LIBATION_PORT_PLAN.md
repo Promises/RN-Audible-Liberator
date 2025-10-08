@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the comprehensive plan for creating a **direct 1:1 port of Libation as a Rust library**. The goal is to translate Libation's C# codebase into a standalone Rust library (`libaudible`) that provides the same functionality as the original Libation desktop application, but as a library suitable for embedding in the RN Audible React Native mobile app.
+This document outlines the comprehensive plan for creating a **direct 1:1 port of Libation as a Rust library**. The goal is to translate Libation's C# codebase into a standalone Rust library (`libaudible`) that provides the same functionality as the original Libation desktop application, but as a library suitable for embedding in the LibriSync React Native mobile app.
 
 **Key Principles:**
 1. **Direct Port**: Maintain the same architecture, logic flow, and API surface as Libation

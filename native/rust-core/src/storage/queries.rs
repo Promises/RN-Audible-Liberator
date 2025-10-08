@@ -1,4 +1,4 @@
-// RN Audible - React Native Audible Client
+// LibriSync - Audible Library Sync for Mobile
 // Copyright (C) 2025 Henning Berge
 //
 // This program is a Rust port of Libation (https://github.com/rmcrackan/Libation)

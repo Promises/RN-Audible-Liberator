@@ -6,7 +6,7 @@ Desktop development allows you to **test Rust code 10-100x faster** than buildin
 
 ## What's Been Added
 
-### 1. CLI Tool (`rn-audible-cli`)
+### 1. CLI Tool (`librisync-cli`)
 
 A command-line interface for testing Rust functions on desktop:
 
@@ -111,7 +111,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
                     # ^^^^ enables desktop builds
 
 [[bin]]
-name = "rn-audible-cli"
+name = "librisync-cli"
 path = "src/bin/cli.rs"
 required-features = ["cli"]
 
@@ -149,7 +149,7 @@ native/rust-core/
 │   └── basic_test.rs       # Runnable examples
 └── target/
     ├── debug/
-    │   ├── rn-audible-cli  # Desktop binary
+    │   ├── librisync-cli  # Desktop binary
     │   └── examples/
     └── aarch64-linux-android/  # Mobile libraries
 ```
@@ -207,7 +207,7 @@ async fn main() {
 
 ```bash
 cargo test                              # Unit tests
-cargo run --features cli --bin rn-audible-cli -- test-http
+cargo run --features cli --bin librisync-cli -- test-http
 cargo run --example http_test
 ```
 
@@ -231,9 +231,9 @@ dbg!(&some_value);
 ### GDB/LLDB Debugging
 
 ```bash
-rust-gdb target/debug/rn-audible-cli
+rust-gdb target/debug/librisync-cli
 # or
-rust-lldb target/debug/rn-audible-cli
+rust-lldb target/debug/librisync-cli
 ```
 
 ### VS Code Debugging
@@ -246,7 +246,7 @@ Add to `.vscode/launch.json`:
   "request": "launch",
   "name": "Debug CLI",
   "cargo": {
-    "args": ["build", "--features", "cli", "--bin", "rn-audible-cli"]
+    "args": ["build", "--features", "cli", "--bin", "librisync-cli"]
   },
   "args": ["test", "--message", "Debug test"]
 }
@@ -272,7 +272,7 @@ jobs:
 ### CLI binary not found
 ```bash
 # Make sure you build with --features cli
-cargo build --features cli --bin rn-audible-cli
+cargo build --features cli --bin librisync-cli
 ```
 
 ### Optional dependency errors

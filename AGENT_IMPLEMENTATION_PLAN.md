@@ -88,7 +88,7 @@ cargo check
 
 **Agent Prompt:**
 ```
-Implement comprehensive error types in native/rust-core/src/error.rs for the RN Audible project.
+Implement comprehensive error types in native/rust-core/src/error.rs for the LibriSync project.
 
 Requirements:
 1. Use thiserror crate for error derivation

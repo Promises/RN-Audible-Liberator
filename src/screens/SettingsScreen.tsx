@@ -367,11 +367,11 @@ const styles = StyleSheet.create({
     ...typography.caption,
   },
   dangerButton: {
-    backgroundColor: '#2a2a2a',
-    borderColor: '#ff3b30',
+    backgroundColor: colors.backgroundSecondary,
+    borderColor: colors.error,
   },
   dangerButtonText: {
-    color: '#ff3b30',
+    color: colors.error,
   },
   dangerDescription: {
     ...typography.caption,

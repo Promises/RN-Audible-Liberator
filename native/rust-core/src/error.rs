@@ -1,4 +1,4 @@
-//! Error types for RN Audible
+//! Error types for LibriSync
 //!
 //! This module defines error types using thiserror for ergonomic error handling.
 //! Errors are categorized by domain (API, crypto, storage, etc.) for better
@@ -50,7 +50,7 @@ use thiserror::Error;
 /// Result type alias using our LibationError type
 pub type Result<T> = std::result::Result<T, LibationError>;
 
-/// Main error type for RN Audible
+/// Main error type for LibriSync
 ///
 /// This enum provides comprehensive error handling for all operations in the application.
 /// Each variant includes descriptive error messages and relevant context.

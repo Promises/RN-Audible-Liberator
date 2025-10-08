@@ -1,4 +1,4 @@
-//! Database models for RN Audible
+//! Database models for LibriSync
 //!
 //! This module contains all database entity models ported from Libation's
 //! Entity Framework data layer to Rust with sqlx.

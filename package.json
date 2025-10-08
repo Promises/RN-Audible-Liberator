@@ -21,6 +21,7 @@
     "rust:doc": "cd native/rust-core && cargo doc --open",
     "rust:fmt": "cd native/rust-core && cargo fmt",
     "rust:clippy": "cd native/rust-core && cargo clippy -- -D warnings",
+    "icons:generate": "inkscape assets/app-icon.svg --export-filename=assets/icon.png --export-width=1024 --export-height=1024 && inkscape assets/adaptive-icon.svg --export-filename=assets/adaptive-icon.png --export-width=1024 --export-height=1024",
     "prebuild:android": "npx expo prebuild --platform android --clean",
     "prebuild:ios": "npx expo prebuild --platform ios --clean"
   },

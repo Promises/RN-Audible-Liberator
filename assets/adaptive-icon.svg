@@ -40,33 +40,36 @@
     </mask>
   </defs>
 
-  <!-- Download Arrow with mask applied -->
-  <g mask="url(#arrowMask)">
-    <!-- Arrow shaft (extends to top) -->
-    <g
-       id="arrowShaft"
-       transform="translate(512, 345) scale(2, 1.0) translate(-512, -345)">
-      <rect
-         x="437"
-         y="-10"
-         width="150"
-         height="700"
-         fill="#ECEFF4"
-         rx="10"
-         id="rect3" />
-    </g>
-    <!-- Arrow head (pointing down) with rounded corners -->
-    <g
-       transform="translate(512, 699) scale(1.2) translate(-512, -699)"
-       id="g7">
-      <path
-         d="M 512 874 L 212 524 Q 212 524, 232 524 L 792 524 Q 812 524, 812 524 Z"
-         fill="#ECEFF4"
-         stroke="#ECEFF4"
-         stroke-width="40"
-         stroke-linejoin="round"
-         stroke-linecap="round"
-         id="path3" />
+  <!-- Scalable icon group - adjust scale here -->
+  <g id="iconGroup" transform="translate(512, 512) scale(0.6) translate(-512, -620)">
+    <!-- Download Arrow with mask applied -->
+    <g mask="url(#arrowMask)">
+      <!-- Arrow shaft (extends to top) -->
+      <g
+         id="arrowShaft"
+         transform="translate(512, 345) scale(2, 1.0)  translate(-512, -850)">
+        <rect
+           x="437"
+           y="-10"
+           width="150"
+           height="1000"
+           fill="#ECEFF4"
+           rx="10"
+           id="rect3" />
+      </g>
+      <!-- Arrow head (pointing down) with rounded corners -->
+      <g
+         transform="translate(512, 699) scale(1.2) translate(-512, -699)"
+         id="g7">
+        <path
+           d="M 512 874 L 212 524 Q 212 524, 232 524 L 792 524 Q 812 524, 812 524 Z"
+           fill="#ECEFF4"
+           stroke="#ECEFF4"
+           stroke-width="40"
+           stroke-linejoin="round"
+           stroke-linecap="round"
+           id="path3" />
+      </g>
     </g>
   </g>
 </svg>

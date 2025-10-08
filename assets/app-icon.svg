@@ -56,63 +56,66 @@
      fill="url(#bgGradient)"
      id="rect2" />
   <!--        rx="180"-->
-  <!-- Download Arrow -->
-  <!-- Arrow shaft (extends to top) -->
-  <g
-     id="arrowShaft"
-     transform="translate(512, 345) scale(2, 1.0) translate(-512, -345)">
-    <rect
-       x="437"
-       y="-10"
-       width="150"
-       height="700"
-       fill="#ECEFF4"
-       rx="10"
-       id="rect3" />
-  </g>
-  <!-- Arrow head (pointing down) with rounded corners -->
-  <g
-     transform="translate(512, 699) scale(1.2) translate(-512, -699)"
-     id="g7">
-    <path
-       d="M 512 874 L 212 524 Q 212 524, 232 524 L 792 524 Q 812 524, 812 524 Z"
-       fill="#ECEFF4"
-       stroke="#ECEFF4"
-       stroke-width="40"
-       stroke-linejoin="round"
-       stroke-linecap="round"
-       id="path3" />
-    <!-- Audible-style swooping arcs - scaled and positioned -->
+  <!-- Scalable icon group - adjust scale here -->
+  <g id="iconGroup" transform="translate(512, 512) scale(0.6) translate(-512, -620)">
+    <!-- Download Arrow -->
+    <!-- Arrow shaft (extends to top) -->
     <g
-       transform="matrix(18,0,0,18,310.87865,443.81556)"
-       id="g6">
-      <!-- Largest outer arc -->
-      <path
-         d="M 5.25,9.012 C 9.367,5.766 16.579775,7.0229308 18.815813,11.204734 l -0.0017,-0.01212 L 19.83,10.053 C 18.105585,7.4100038 15.162794,5.8169162 12.007,5.818 8.851099,5.8186179 5.9084635,7.4112136 4.182,10.053 4.486,9.711 4.868,9.302 5.25,9.012 Z"
-         fill="#5e81ac"
-         id="path4"
-         sodipodi:nodetypes="ccccccc" />
-      <!-- Middle arc -->
-      <path
-         d="m 17.175862,13.167629 0.918984,-1.08383 C 16.589272,9.602974 14.25,8.655 12.007,8.655 9.75,8.655 7.771,9.79 6.636,11.545 6.729,11.452 6.782,11.399 6.874,11.334 9.685,8.998 15.443384,9.8800552 17.175862,13.167629 Z"
-         fill="#5e81ac"
-         id="path5"
-         sodipodi:nodetypes="ccsccc" />
-      <!-- Smallest inner arc -->
-      <path
-         d="m 9.051,13.063 c 0.5159504,-0.378888 1.438322,-0.405837 2.078444,-0.403647 1.083,0 3.057035,-0.02785 4.608809,2.105086 l 0.764208,-0.966108 c -0.715813,-1.36198 -2.920195,-2.095028 -4.148195,-2.095028 -1.226,0 -2.657266,0.461697 -3.303266,1.359697 z"
-         fill="#5e81ac"
-         id="path6"
-         sodipodi:nodetypes="ccccsc" />
+       id="arrowShaft"
+       transform="translate(512, 345) scale(2, 1.0) translate(-512, -850)">
+      <rect
+         x="437"
+         y="-10"
+         width="150"
+         height="1000"
+         fill="#ECEFF4"
+         rx="10"
+         id="rect3" />
     </g>
-    <!-- Inner chevron - just two downward-facing sides -->
-    <path
-       d="M 272 559 L 512 839 L 752 559"
-       fill="none"
-       stroke="#5E81AC"
-       stroke-width="30"
-       stroke-linejoin="round"
-       stroke-linecap="round"
-       id="path7" />
+    <!-- Arrow head (pointing down) with rounded corners -->
+    <g
+       transform="translate(512, 699) scale(1.2) translate(-512, -699)"
+       id="g7">
+      <path
+         d="M 512 874 L 212 524 Q 212 524, 232 524 L 792 524 Q 812 524, 812 524 Z"
+         fill="#ECEFF4"
+         stroke="#ECEFF4"
+         stroke-width="40"
+         stroke-linejoin="round"
+         stroke-linecap="round"
+         id="path3" />
+      <!-- Audible-style swooping arcs - scaled and positioned -->
+      <g
+         transform="matrix(18,0,0,18,310.87865,443.81556)"
+         id="g6">
+        <!-- Largest outer arc -->
+        <path
+           d="M 5.25,9.012 C 9.367,5.766 16.579775,7.0229308 18.815813,11.204734 l -0.0017,-0.01212 L 19.83,10.053 C 18.105585,7.4100038 15.162794,5.8169162 12.007,5.818 8.851099,5.8186179 5.9084635,7.4112136 4.182,10.053 4.486,9.711 4.868,9.302 5.25,9.012 Z"
+           fill="#5e81ac"
+           id="path4"
+           sodipodi:nodetypes="ccccccc" />
+        <!-- Middle arc -->
+        <path
+           d="m 17.175862,13.167629 0.918984,-1.08383 C 16.589272,9.602974 14.25,8.655 12.007,8.655 9.75,8.655 7.771,9.79 6.636,11.545 6.729,11.452 6.782,11.399 6.874,11.334 9.685,8.998 15.443384,9.8800552 17.175862,13.167629 Z"
+           fill="#5e81ac"
+           id="path5"
+           sodipodi:nodetypes="ccsccc" />
+        <!-- Smallest inner arc -->
+        <path
+           d="m 9.051,13.063 c 0.5159504,-0.378888 1.438322,-0.405837 2.078444,-0.403647 1.083,0 3.057035,-0.02785 4.608809,2.105086 l 0.764208,-0.966108 c -0.715813,-1.36198 -2.920195,-2.095028 -4.148195,-2.095028 -1.226,0 -2.657266,0.461697 -3.303266,1.359697 z"
+           fill="#5e81ac"
+           id="path6"
+           sodipodi:nodetypes="ccccsc" />
+      </g>
+      <!-- Inner chevron - just two downward-facing sides -->
+      <path
+         d="M 272 559 L 512 839 L 752 559"
+         fill="none"
+         stroke="#5E81AC"
+         stroke-width="30"
+         stroke-linejoin="round"
+         stroke-linecap="round"
+         id="path7" />
+    </g>
   </g>
 </svg>

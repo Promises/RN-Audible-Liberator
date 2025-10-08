@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { colors } from '../styles/theme';
+import { useTheme } from '../styles/theme';
 
 import LibraryScreen from '../screens/LibraryScreen';
 import SimpleAccountScreen from '../screens/SimpleAccountScreen';
@@ -10,6 +10,8 @@ import SettingsScreen from '../screens/SettingsScreen';
 const Tab = createBottomTabNavigator();
 
 export default function AppNavigator() {
+  const { colors } = useTheme();
+
   return (
     <NavigationContainer>
       <Tab.Navigator

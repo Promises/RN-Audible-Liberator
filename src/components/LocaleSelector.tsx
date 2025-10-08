@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { colors, spacing, typography } from '../styles/theme';
+import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { useStyles } from '../hooks/useStyles';
+import type { Theme } from '../hooks/useStyles';
 import type { Locale } from '../types/auth';
 
 /**
@@ -32,6 +33,8 @@ interface LocaleSelectorProps {
  * The selected locale is highlighted and used for OAuth authentication.
  */
 export default function LocaleSelector({ selectedLocale, onSelect }: LocaleSelectorProps) {
+  const styles = useStyles(createStyles);
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.content}>
@@ -71,55 +74,55 @@ export default function LocaleSelector({ selectedLocale, onSelect }: LocaleSelec
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => ({
   container: {
     flex: 1,
   },
   content: {
-    padding: spacing.lg,
+    padding: theme.spacing.lg,
   },
   title: {
-    ...typography.title,
+    ...theme.typography.title,
     fontSize: 24,
-    marginBottom: spacing.sm,
+    marginBottom: theme.spacing.sm,
   },
   subtitle: {
-    ...typography.caption,
-    marginBottom: spacing.xl,
+    ...theme.typography.caption,
+    marginBottom: theme.spacing.xl,
   },
   localeList: {
-    gap: spacing.sm,
+    gap: theme.spacing.sm,
   },
   localeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.backgroundSecondary,
-    padding: spacing.md,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    backgroundColor: theme.colors.backgroundSecondary,
+    padding: theme.spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: theme.colors.border,
   },
   localeButtonSelected: {
-    backgroundColor: colors.backgroundTertiary,
-    borderColor: colors.accent,
+    backgroundColor: theme.colors.backgroundTertiary,
+    borderColor: theme.colors.accent,
   },
   localeContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: theme.spacing.md,
   },
   flag: {
     fontSize: 24,
   },
   localeName: {
-    ...typography.body,
+    ...theme.typography.body,
   },
   localeNameSelected: {
-    fontWeight: '600',
+    fontWeight: '600' as const,
   },
   checkmark: {
     fontSize: 20,
-    color: colors.accent,
+    color: theme.colors.accent,
   },
 });

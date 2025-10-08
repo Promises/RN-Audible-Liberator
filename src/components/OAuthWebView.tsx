@@ -1,7 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Modal, View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { Modal, View, Text, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
-import { colors, spacing, typography } from '../styles/theme';
+import { useStyles } from '../hooks/useStyles';
+import { useTheme } from '../styles/theme';
+import type { Theme } from '../hooks/useStyles';
 import type { TokenResponse, OAuthFlowData } from '../types/auth';
 
 /**
@@ -32,6 +34,8 @@ export default function OAuthWebView({
   onCancel,
   onError
 }: OAuthWebViewProps) {
+  const styles = useStyles(createStyles);
+  const { colors } = useTheme();
   const [loading, setLoading] = useState(true);
   const [authUrl, setAuthUrl] = useState<string>('');
   const [flowData, setFlowData] = useState<OAuthFlowData | null>(null);
@@ -223,54 +227,54 @@ function generateMockOAuthUrl(localeCode: string): string {
   return `https://www.${domain}/ap/signin?openid.return_to=https://www.${domain}/ap/maplanding`;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => ({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: theme.colors.background,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.md,
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    padding: theme.spacing.md,
     paddingTop: 60, // Account for status bar
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: theme.colors.backgroundSecondary,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: theme.colors.border,
   },
   headerTitle: {
-    ...typography.subtitle,
+    ...theme.typography.subtitle,
   },
   cancelButton: {
-    padding: spacing.sm,
+    padding: theme.spacing.sm,
   },
   cancelButtonText: {
-    ...typography.body,
-    color: colors.accent,
-    fontWeight: '600',
+    ...theme.typography.body,
+    color: theme.colors.accent,
+    fontWeight: '600' as const,
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: spacing.md,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    gap: theme.spacing.md,
   },
   loadingOverlay: {
-    position: 'absolute',
+    position: 'absolute' as const,
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: `${colors.background}CC`, // 80% opacity
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    backgroundColor: `${theme.colors.background}CC`, // 80% opacity
     zIndex: 1,
   },
   loadingText: {
-    ...typography.caption,
+    ...theme.typography.caption,
   },
   webview: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: theme.colors.background,
   },
 });

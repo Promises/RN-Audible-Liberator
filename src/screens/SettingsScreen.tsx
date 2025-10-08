@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, spacing, typography } from '../styles/theme';
+import { useStyles } from '../hooks/useStyles';
+import { useTheme } from '../styles/theme';
+import type { Theme } from '../hooks/useStyles';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 
@@ -11,6 +13,8 @@ const WIFI_ONLY_KEY = 'wifi_only';
 const REMOVE_DRM_KEY = 'remove_drm';
 
 export default function SettingsScreen() {
+  const styles = useStyles(createStyles);
+  const { colors } = useTheme(); // For Switch components
   const [downloadPath, setDownloadPath] = useState<string | null>(null);
   const [autoDownload, setAutoDownload] = useState(false);
   const [wifiOnly, setWifiOnly] = useState(true);
@@ -280,103 +284,104 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+// Styles factory function
+const createStyles = (theme: Theme) => ({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: theme.colors.background,
   },
   content: {
-    padding: spacing.lg,
+    padding: theme.spacing.lg,
     flexGrow: 1,
   },
   title: {
-    ...typography.title,
-    marginBottom: spacing.lg,
+    ...theme.typography.title,
+    marginBottom: theme.spacing.lg,
   },
   section: {
-    marginBottom: spacing.xl,
+    marginBottom: theme.spacing.xl,
   },
   sectionTitle: {
-    ...typography.subtitle,
-    marginBottom: spacing.md,
+    ...theme.typography.subtitle,
+    marginBottom: theme.spacing.md,
   },
   settingItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.backgroundSecondary,
-    padding: spacing.md,
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    backgroundColor: theme.colors.backgroundSecondary,
+    padding: theme.spacing.md,
     borderRadius: 8,
-    marginBottom: spacing.sm,
+    marginBottom: theme.spacing.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: theme.colors.border,
   },
   settingInfo: {
     flex: 1,
-    marginRight: spacing.md,
+    marginRight: theme.spacing.md,
   },
   settingLabel: {
-    ...typography.body,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
+    ...theme.typography.body,
+    fontWeight: '600' as const,
+    marginBottom: theme.spacing.xs,
   },
   settingValue: {
-    ...typography.caption,
+    ...theme.typography.caption,
     fontFamily: 'monospace',
   },
   settingDescription: {
-    ...typography.caption,
+    ...theme.typography.caption,
   },
   settingHint: {
-    ...typography.caption,
-    marginTop: spacing.xs,
-    marginLeft: spacing.md,
+    ...theme.typography.caption,
+    marginTop: theme.spacing.xs,
+    marginLeft: theme.spacing.md,
     fontFamily: 'monospace',
     fontSize: 11,
   },
   button: {
-    backgroundColor: colors.backgroundTertiary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    backgroundColor: theme.colors.backgroundTertiary,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: theme.colors.border,
   },
   buttonText: {
-    ...typography.body,
+    ...theme.typography.body,
     fontSize: 14,
   },
   card: {
-    backgroundColor: colors.backgroundSecondary,
-    padding: spacing.md,
+    backgroundColor: theme.colors.backgroundSecondary,
+    padding: theme.spacing.md,
     borderRadius: 8,
-    marginBottom: spacing.sm,
+    marginBottom: theme.spacing.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: theme.colors.border,
   },
   cardLabel: {
-    ...typography.caption,
-    marginBottom: spacing.xs,
+    ...theme.typography.caption,
+    marginBottom: theme.spacing.xs,
   },
   cardValue: {
-    ...typography.body,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
+    ...theme.typography.body,
+    fontWeight: '600' as const,
+    marginBottom: theme.spacing.xs,
   },
   cardDescription: {
-    ...typography.caption,
+    ...theme.typography.caption,
   },
   dangerButton: {
-    backgroundColor: colors.backgroundSecondary,
-    borderColor: colors.error,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderColor: theme.colors.error,
   },
   dangerButtonText: {
-    color: colors.error,
+    color: theme.colors.error,
   },
   dangerDescription: {
-    ...typography.caption,
-    marginTop: spacing.xs,
-    color: colors.textSecondary,
-    textAlign: 'center',
+    ...theme.typography.caption,
+    marginTop: theme.spacing.xs,
+    color: theme.colors.textSecondary,
+    textAlign: 'center' as const,
   },
 });

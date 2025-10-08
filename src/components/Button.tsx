@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
-import { colors, spacing } from '../styles/theme';
+import { useTheme, ColorScheme } from '../styles/theme';
 
 type ButtonVariant = 'filled' | 'outlined';
 type ButtonState = 'primary' | 'neutral' | 'error' | 'warning' | 'success' | 'info';
@@ -24,15 +24,21 @@ export default function Button({
   loading = false,
   style,
 }: ButtonProps) {
+  const { colors, spacing } = useTheme();
+
   const buttonStyles = [
     styles.button,
-    getStateStyle(variant, state, disabled),
+    {
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+    },
+    getStateStyle(variant, state, disabled, colors),
     style,
   ];
 
   const textStyles = [
     styles.text,
-    getTextStyle(variant, state, disabled),
+    getTextStyle(variant, state, disabled, colors),
   ];
 
   return (
@@ -45,7 +51,7 @@ export default function Button({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={getLoaderColor(variant, state)}
+          color={getLoaderColor(variant, state, colors)}
         />
       ) : (
         <Text style={textStyles}>{title}</Text>
@@ -58,7 +64,8 @@ export default function Button({
 function getStateStyle(
   variant: ButtonVariant,
   state: ButtonState,
-  disabled: boolean
+  disabled: boolean,
+  colors: ColorScheme
 ): ViewStyle {
   if (disabled) {
     return {
@@ -89,7 +96,8 @@ function getStateStyle(
 function getTextStyle(
   variant: ButtonVariant,
   state: ButtonState,
-  disabled: boolean
+  disabled: boolean,
+  colors: ColorScheme
 ): TextStyle {
   if (disabled) {
     return {
@@ -110,7 +118,7 @@ function getTextStyle(
   }
 
   // Filled variant - ensure good contrast
-  // Dark text on warning (yellow), white text on others
+  // Dark text on warning (yellow/orange), white text on others
   const darkText = state === 'warning';
   return {
     color: darkText ? colors.background : colors.textPrimary,
@@ -118,7 +126,7 @@ function getTextStyle(
 }
 
 // Get loader color for ActivityIndicator
-function getLoaderColor(variant: ButtonVariant, state: ButtonState): string {
+function getLoaderColor(variant: ButtonVariant, state: ButtonState, colors: ColorScheme): string {
   if (variant === 'outlined') {
     const stateColors: Record<ButtonState, string> = {
       primary: colors.accent,
@@ -137,8 +145,6 @@ function getLoaderColor(variant: ButtonVariant, state: ButtonState): string {
 
 const styles = StyleSheet.create({
   button: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
     borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',

@@ -1,60 +1,115 @@
 // Nord Color Palette
 // https://www.nordtheme.com/docs/colors-and-palettes
 
-// Polar Night (backgrounds)
-const nord0 = '#2E3440';  // darkest - main background
-const nord1 = '#3B4252';  // dark - secondary background
-const nord2 = '#434C5E';  // medium - elevated surfaces
-const nord3 = '#4C566A';  // light - borders, dividers
+// Polar Night (dark backgrounds)
+const nord0 = '#2E3440';
+const nord1 = '#3B4252';
+const nord2 = '#434C5E';
+const nord3 = '#4C566A';
 
-// Snow Storm (foregrounds)
-const nord4 = '#D8DEE9';  // light - secondary text
-const nord5 = '#E5E9F0';  // lighter - primary text
-const nord6 = '#ECEFF4';  // lightest - highlighted text
+// Snow Storm (light backgrounds/dark text)
+const nord4 = '#D8DEE9';
+const nord5 = '#E5E9F0';
+const nord6 = '#ECEFF4';
 
 // Frost (accent blues/cyans)
-const nord7 = '#8FBCBB';  // cyan - muted accent
-const nord8 = '#88C0D0';  // bright cyan - primary accent
-const nord9 = '#81A1C1';  // blue - links, info
-const nord10 = '#5E81AC'; // dark blue - secondary accent
+const nord7 = '#8FBCBB';
+const nord8 = '#88C0D0';
+const nord9 = '#81A1C1';
+const nord10 = '#5E81AC';
 
 // Aurora (status colors)
-const nord11 = '#BF616A'; // red - errors
-const nord12 = '#D08770'; // orange - warnings
-const nord13 = '#EBCB8B'; // yellow - warnings alt
-const nord14 = '#A3BE8C'; // green - success
-const nord15 = '#B48EAD'; // purple - special highlights
+const nord11 = '#BF616A';
+const nord12 = '#D08770';
+const nord13 = '#EBCB8B';
+const nord14 = '#A3BE8C';
+const nord15 = '#B48EAD';
 
-export const colors = {
+export type ColorScheme = {
   // Backgrounds
+  background: string;
+  backgroundSecondary: string;
+  backgroundTertiary: string;
+
+  // Text
+  textPrimary: string;
+  textSecondary: string;
+  textTertiary: string;
+
+  // Accents
+  accent: string;
+  accentDim: string;
+  accentSecondary: string;
+
+  // Borders & Dividers
+  border: string;
+  borderLight: string;
+
+  // Status Colors
+  error: string;
+  warning: string;
+  success: string;
+  info: string;
+
+  // Special
+  highlight: string;
+  link: string;
+};
+
+// Dark Mode (Polar Night backgrounds, Snow Storm text)
+export const darkColors: ColorScheme = {
   background: nord0,
   backgroundSecondary: nord1,
   backgroundTertiary: nord2,
 
-  // Text
   textPrimary: nord5,
   textSecondary: nord4,
   textTertiary: nord3,
 
-  // Accents
-  accent: nord8,        // bright cyan - primary interactive elements
-  accentDim: nord7,     // muted cyan - secondary interactive elements
-  accentSecondary: nord9, // blue - alternative accent
+  accent: nord8,
+  accentDim: nord7,
+  accentSecondary: nord9,
 
-  // Borders & Dividers
   border: nord3,
   borderLight: nord2,
 
-  // Status Colors
   error: nord11,
   warning: nord13,
   success: nord14,
   info: nord9,
 
-  // Special
-  highlight: nord15,    // purple for special items
-  link: nord9,          // blue for links
+  highlight: nord15,
+  link: nord9,
 };
+
+// Light Mode (Snow Storm backgrounds, Polar Night text)
+export const lightColors: ColorScheme = {
+  background: nord6,
+  backgroundSecondary: nord5,
+  backgroundTertiary: nord4,
+
+  textPrimary: nord0,
+  textSecondary: nord2,
+  textTertiary: nord3,
+
+  accent: nord10,        // darker blue for better contrast on light
+  accentDim: nord9,
+  accentSecondary: nord8,
+
+  border: nord4,
+  borderLight: nord5,
+
+  error: nord11,
+  warning: nord12,       // orange instead of yellow for better contrast
+  success: nord14,
+  info: nord10,
+
+  highlight: nord15,
+  link: nord10,
+};
+
+// No default export - use useTheme() hook instead
+// This enforces dynamic theming and prevents static color usage
 
 export const spacing = {
   xs: 4,
@@ -64,7 +119,8 @@ export const spacing = {
   xl: 32,
 };
 
-export const typography = {
+// Typography factory - takes colors as parameter
+export const createTypography = (colors: ColorScheme) => ({
   title: {
     fontSize: 32,
     fontWeight: 'bold' as const,
@@ -88,4 +144,23 @@ export const typography = {
     fontFamily: 'monospace',
     color: colors.accent,
   },
-};
+});
+
+// No default typography export - use useTheme() hook instead
+
+// Hook to get theme based on OS color scheme
+import { useColorScheme } from 'react-native';
+
+export function useTheme() {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const colors = isDark ? darkColors : lightColors;
+  const typography = createTypography(colors);
+
+  return {
+    colors,
+    spacing,
+    typography,
+    isDark,
+  };
+}

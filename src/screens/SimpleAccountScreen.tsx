@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, Alert, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import LoginScreen from './LoginScreen';
@@ -7,9 +7,13 @@ import Button from '../components/Button';
 import { syncLibrary, initializeDatabase, refreshToken, getBooks, getCustomerInformation } from '../../modules/expo-rust-bridge';
 import type { Account } from '../../modules/expo-rust-bridge';
 import { Paths } from 'expo-file-system';
-import { colors, spacing, typography } from '../styles/theme';
+import { useStyles } from '../hooks/useStyles';
+import { useTheme } from '../styles/theme';
+import type { Theme } from '../hooks/useStyles';
 
 export default function SimpleAccountScreen() {
+  const styles = useStyles(createStyles);
+  const { colors, spacing } = useTheme();
   const [account, setAccount] = useState<Account | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -445,49 +449,49 @@ export default function SimpleAccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => ({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: theme.colors.background,
   },
   content: {
-    padding: spacing.lg,
+    padding: theme.spacing.lg,
     flexGrow: 1,
   },
   title: {
-    ...typography.title,
-    marginBottom: spacing.lg,
+    ...theme.typography.title,
+    marginBottom: theme.spacing.lg,
   },
   card: {
-    backgroundColor: colors.backgroundSecondary,
-    padding: spacing.md,
+    backgroundColor: theme.colors.backgroundSecondary,
+    padding: theme.spacing.md,
     borderRadius: 8,
-    marginBottom: spacing.sm,
+    marginBottom: theme.spacing.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: theme.colors.border,
   },
   label: {
-    ...typography.caption,
-    marginBottom: spacing.xs,
-    textTransform: 'uppercase',
+    ...theme.typography.caption,
+    marginBottom: theme.spacing.xs,
+    textTransform: 'uppercase' as const,
   },
   value: {
-    ...typography.body,
-    fontWeight: '600',
+    ...theme.typography.body,
+    fontWeight: '600' as const,
   },
   caption: {
-    ...typography.caption,
-    marginTop: spacing.xs,
+    ...theme.typography.caption,
+    marginTop: theme.spacing.xs,
   },
   statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
   },
   statusIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.success,
-    marginRight: spacing.sm,
+    backgroundColor: theme.colors.success,
+    marginRight: theme.spacing.sm,
   },
 });

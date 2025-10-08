@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import {
@@ -10,13 +10,17 @@ import {
 } from '../../modules/expo-rust-bridge';
 import type { Account, Locale } from '../../modules/expo-rust-bridge';
 import * as SecureStore from 'expo-secure-store';
-import { colors, spacing, typography } from '../styles/theme';
+import { useStyles } from '../hooks/useStyles';
+import { useTheme } from '../styles/theme';
+import type { Theme } from '../hooks/useStyles';
 
 interface LoginScreenProps {
   onLoginSuccess: (account: Account) => void;
 }
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
+  const styles = useStyles(createStyles);
+  const { colors } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
   const [status, setStatus] = useState('Preparing login...');
@@ -263,34 +267,34 @@ function getLocaleDomain(code: string): string {
   return domains[code] || 'audible.com';
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => ({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: theme.colors.background,
   },
   webView: {
     flex: 1,
   },
   centered: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    padding: theme.spacing.lg,
   },
   loadingOverlay: {
-    position: 'absolute',
+    position: 'absolute' as const,
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: `${colors.background}E6`, // 90% opacity
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: `${theme.colors.background}E6`, // 90% opacity
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
     zIndex: 1000,
   },
   statusText: {
-    ...typography.body,
-    marginTop: spacing.md,
-    textAlign: 'center',
+    ...theme.typography.body,
+    marginTop: theme.spacing.md,
+    textAlign: 'center' as const,
   },
 });

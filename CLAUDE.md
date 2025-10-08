@@ -119,20 +119,40 @@ src/
 
 ### Styling Approach
 
-The project uses the **Nord color theme** - a beautiful arctic-inspired color palette. All styling uses the StyleSheet API with centralized theme management in `src/styles/theme.ts`.
+The project uses the **Nord color theme** - a beautiful arctic-inspired color palette. All styling uses the StyleSheet API with centralized theme management.
 
 **Theme Structure:**
 - **Colors**: Nord palette (Polar Night backgrounds, Snow Storm text, Frost accents, Aurora status colors)
+  - Automatically follows OS light/dark mode via `useColorScheme()`
 - **Spacing**: Consistent spacing scale (xs: 4px, sm: 8px, md: 16px, lg: 24px, xl: 32px)
 - **Typography**: Predefined text styles (title, subtitle, body, caption, mono)
 
-**Key Principles:**
-- ALWAYS import and use theme constants: `import { colors, spacing, typography } from '../styles/theme'`
-- NEVER use hardcoded colors, spacing, or font sizes
-- Use semantic color names (e.g., `colors.error`, `colors.success`) for status indicators
-- Prefer StyleSheet over inline styles for maintainability and performance
+**Recommended Pattern (Scalable):**
+```typescript
+import { useStyles } from '../hooks/useStyles';
+import type { Theme } from '../hooks/useStyles';
 
-See `THEME.md` for complete color palette and usage guidelines.
+function MyScreen() {
+  const styles = useStyles(createStyles);
+  return <View style={styles.container}>...</View>;
+}
+
+const createStyles = (theme: Theme) => ({
+  container: {
+    backgroundColor: theme.colors.background,
+    padding: theme.spacing.lg,
+  },
+});
+```
+
+**Key Principles:**
+- USE `useStyles` hook for automatic theme-aware styling with memoization
+- NEVER use hardcoded colors, spacing, or font sizes
+- Use semantic color names (e.g., `theme.colors.error`, `theme.colors.success`)
+- For theme values outside styles: `const { colors } = useTheme()`
+- Prefer StyleSheet over inline styles
+
+See `src/hooks/README.md` for complete `useStyles` documentation and `THEME.md` for color palette details.
 
 ### Reference Implementation & Porting Methodology
 

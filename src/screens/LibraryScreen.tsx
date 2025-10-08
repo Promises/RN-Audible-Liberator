@@ -1,12 +1,16 @@
 import React, {useState, useEffect} from 'react';
-import {View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, Image} from 'react-native';
+import {View, Text, FlatList, TouchableOpacity, RefreshControl, Image} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {colors, spacing, typography} from '../styles/theme';
+import {useStyles} from '../hooks/useStyles';
+import {useTheme} from '../styles/theme';
+import type {Theme} from '../hooks/useStyles';
 import {getBooks, initializeDatabase} from '../../modules/expo-rust-bridge';
 import type {Book} from '../../modules/expo-rust-bridge';
 import {Paths} from 'expo-file-system';
 
 export default function LibraryScreen() {
+    const styles = useStyles(createStyles);
+    const { colors } = useTheme();
     const [audiobooks, setAudiobooks] = useState<Book[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -188,102 +192,102 @@ export default function LibraryScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => ({
     container: {
         flex: 1,
-        backgroundColor: colors.background,
+        backgroundColor: theme.colors.background,
     },
     header: {
-        padding: spacing.lg,
+        padding: theme.spacing.lg,
         borderBottomWidth: 1,
-        borderBottomColor: colors.border,
+        borderBottomColor: theme.colors.border,
     },
     headerTitle: {
-        ...typography.title,
+        ...theme.typography.title,
     },
     headerSubtitle: {
-        ...typography.caption,
-        marginTop: spacing.xs,
+        ...theme.typography.caption,
+        marginTop: theme.spacing.xs,
     },
     list: {
-        padding: spacing.md,
+        padding: theme.spacing.md,
     },
     item: {
-        backgroundColor: colors.backgroundSecondary,
+        backgroundColor: theme.colors.backgroundSecondary,
         borderRadius: 8,
-        padding: spacing.md,
+        padding: theme.spacing.md,
         borderWidth: 1,
-        borderColor: colors.border,
+        borderColor: theme.colors.border,
     },
     itemRow: {
-        flexDirection: 'row',
-        gap: spacing.md,
+        flexDirection: 'row' as const,
+        gap: theme.spacing.md,
     },
     cover: {
         width: 80,
         height: 80,
         borderRadius: 4,
-        backgroundColor: colors.background,
+        backgroundColor: theme.colors.background,
     },
     coverPlaceholder: {
         width: 80,
         height: 80,
         borderRadius: 4,
-        backgroundColor: colors.background,
-        justifyContent: 'center',
-        alignItems: 'center',
+        backgroundColor: theme.colors.background,
+        justifyContent: 'center' as const,
+        alignItems: 'center' as const,
     },
     coverPlaceholderText: {
         fontSize: 32,
     },
     itemContent: {
         flex: 1,
-        gap: spacing.xs,
+        gap: theme.spacing.xs,
     },
     title: {
-        ...typography.subtitle,
+        ...theme.typography.subtitle,
         fontSize: 16,
     },
     author: {
-        ...typography.caption,
+        ...theme.typography.caption,
     },
     metadata: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginTop: spacing.xs,
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        marginTop: theme.spacing.xs,
     },
     duration: {
-        ...typography.caption,
+        ...theme.typography.caption,
         fontFamily: 'monospace',
     },
     status: {
-        ...typography.caption,
-        fontWeight: '600',
+        ...theme.typography.caption,
+        fontWeight: '600' as const,
     },
     separator: {
-        height: spacing.sm,
+        height: theme.spacing.sm,
     },
     emptyState: {
         flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: spacing.xl,
+        justifyContent: 'center' as const,
+        alignItems: 'center' as const,
+        padding: theme.spacing.xl,
     },
     emptyText: {
-        ...typography.subtitle,
-        marginBottom: spacing.sm,
+        ...theme.typography.subtitle,
+        marginBottom: theme.spacing.sm,
     },
     emptySubtext: {
-        ...typography.caption,
-        textAlign: 'center',
+        ...theme.typography.caption,
+        textAlign: 'center' as const,
     },
     loadingFooter: {
-        padding: spacing.md,
-        alignItems: 'center',
+        padding: theme.spacing.md,
+        alignItems: 'center' as const,
     },
     loadingText: {
-        ...typography.caption,
-        color: colors.textSecondary,
+        ...theme.typography.caption,
+        color: theme.colors.textSecondary,
     },
 });

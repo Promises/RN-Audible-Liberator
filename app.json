@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1a1a1a"
+        "backgroundColor": "#5E81AC"
       },
       "package": "tech.henning.librisync",
       "edgeToEdgeEnabled": true,

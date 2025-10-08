@@ -168,7 +168,35 @@ cargo test --manifest-path native/rust-core/Cargo.toml
 5. Download and DRM removal integration
 6. Audio playback UI
 
+## License
+
+This project is licensed under the **GNU General Public License v3.0** (GPL-3.0).
+
+### Attribution
+
+**RN Audible** is a Rust port of [Libation](https://github.com/rmcrackan/Libation), an Audible audiobook manager and DRM removal tool.
+
+- **Original work**: Copyright (C) Libation contributors
+- **Rust port**: Copyright (C) 2025 Henning Berge
+
+This project maintains the GPL-3.0 license from Libation as it is a derivative work - a systematic translation of Libation's C# codebase to Rust. The Rust implementation preserves Libation's architecture, data models, and business logic while adapting to Rust idioms and mobile platforms.
+
+### License Terms
+
+You are free to:
+- ✅ Use this software for personal or commercial purposes
+- ✅ Modify and distribute the source code
+- ✅ Sell applications built with this code (e.g., on app stores)
+
+**Requirements:**
+- ⚠️ You must provide access to the complete source code
+- ⚠️ Modified versions must also be licensed under GPL-3.0
+- ⚠️ You must include copyright notices and license text
+
+See the [LICENSE](./LICENSE) file for full terms.
+
 ## References
 
 - [Libation (C#)](https://github.com/rmcrackan/Libation) - Original desktop application
 - [UniFFI](https://mozilla.github.io/uniffi-rs/) - Rust binding generator
+- [GNU GPL v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) - License information

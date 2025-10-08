@@ -1,0 +1,57 @@
+RN Audible - React Native Audible Client
+Copyright (C) 2025 Henning Berge
+
+================================================================================
+
+This software is a Rust port of Libation, an Audible audiobook manager and
+DRM removal tool. The Rust implementation is a derivative work that maintains
+the architecture, data models, and business logic of the original C# codebase.
+
+Original Work: Libation
+Copyright: Libation contributors
+License: GNU General Public License v3.0
+Repository: https://github.com/rmcrackan/Libation
+
+================================================================================
+
+ATTRIBUTION NOTICE
+
+This project is a systematic translation of Libation's C# source code to Rust,
+preserving the original implementation details while adapting to Rust idioms
+and mobile platforms (iOS and Android).
+
+Component Mapping:
+- native/rust-core/src/api/       ← Libation's AudibleUtilities/
+- native/rust-core/src/crypto/    ← Libation's AaxDecrypter/ + Widevine/
+- native/rust-core/src/storage/   ← Libation's DataLayer/
+- native/rust-core/src/download/  ← Libation's FileLiberator/
+- native/rust-core/src/audio/     ← Libation's FileLiberator/
+- native/rust-core/src/file/      ← Libation's FileManager/
+
+Each Rust module contains detailed comments referencing the corresponding C#
+source files and line numbers from the original Libation implementation.
+
+================================================================================
+
+LICENSE
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program. If not, see <https://www.gnu.org/licenses/>.
+
+================================================================================
+
+THIRD-PARTY DEPENDENCIES
+
+This project uses various open-source libraries. See Cargo.toml and
+package.json for complete dependency lists with their respective licenses.
+
+================================================================================

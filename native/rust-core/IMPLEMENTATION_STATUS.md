@@ -145,34 +145,43 @@ test result: ok. 126 passed; 0 failed; 2 ignored
 - File type detection
 
 ### 7. **Download Manager** (`src/download/`)
-- ✅ **WORKING!** - Full download + resume tested with real book
-- ✅ Successfully downloaded book B07T2F8VJM (150 MB AAX file)
-- ✅ Resume capability verified with HTTP 206 Partial Content
-- ✅ Data integrity confirmed (MD5 hash verification)
-- Progress tracking module complete (DownloadProgress, AverageSpeed, ProgressTracker)
-- Design based on NetworkFileStream.cs (422 lines) - resumable HTTP with state persistence
-- Module structure: progress.rs (100%), stream.rs (100%), manager.rs (100%)
-- **See:** `DOWNLOAD_IMPLEMENTATION_STATUS.md` for detailed architecture
+- ✅ **PRODUCTION READY!** - Complete queue-based download system with persistence
+- ✅ **PersistentDownloadManager** - SQLite-backed download queue
+- ✅ **Queue Management** - FIFO with configurable concurrency (max 3 simultaneous)
+- ✅ **Pause/Resume** - HTTP Range headers for byte-offset resumption
+- ✅ **Progress Tracking** - Real-time updates (polling every 2s)
+- ✅ **Crash Recovery** - Auto-resumes interrupted downloads from database
+- ✅ **Integration Tested** - Downloaded 4.25 MB file at 10.41 MB/s in 1.42s
 
-**Implemented:**
-- DownloadProgress with book metadata (asin, title), speed calculation, ETA
-- AverageSpeed calculator (rolling 10-sample average)
-- ProgressTracker state machine with throttling (200ms intervals)
-- DownloadState enum (Queued, Pending, Downloading, Paused, Completed, Failed, Cancelled)
-- HTTP Range requests for resume (30% → 100% tested successfully)
-- JSON state persistence for crash recovery
-- DownloadManager with queue, concurrency control, retry logic
-- File naming templates with sanitization
-- License API integration (get_download_license, build_download_license)
+**Architecture:**
+- `persistent_manager.rs` - Main download manager with SQLite persistence
+- `progress.rs` - Progress tracking and callbacks
+- `stream.rs` - Resumable HTTP streaming
+- `manager.rs` - High-level download orchestration
 
-**Tests & Examples:**
-- 7 unit tests passing (progress, stream, manager)
-- 1 integration test passing (license request)
-- 2 working examples: full download + resume demonstration
-- Progress percentage calculation
-- Speed tracker moving average
-- State serialization
-- Filename sanitization
+**Database Schema:**
+- `DownloadTasks` table (Migration #2)
+- Stores: task_id, asin, title, status, progress, URLs, paths, headers
+- Indexes on status, asin, created_at
+
+**Tests:** 4 passing
+- Unit tests: enqueue, list, pause (3 tests)
+- Integration test: Full download with public URL (1 test passing ✅)
+
+**Android Integration (Oct 9, 2025):**
+- ✅ **DownloadOrchestrator** - Complete pipeline manager
+- ✅ **WiFi Monitoring** - Auto-pause/resume on WiFi loss
+- ✅ **Auto-Conversion** - Triggers FFmpeg after download completes
+- ✅ **SAF Integration** - Copies files to user's directory
+- ✅ **Real-World Test** - Downloaded & converted 143 MB book in 44 seconds
+- ✅ **UI Progress** - Real-time percentage updates in LibraryScreen
+
+**Production Features:**
+- Background operation via Android Foreground Service
+- Progress notifications with pause/cancel buttons
+- Persistent queue survives app restarts
+- Automatic cleanup of cache files
+- WiFi-only mode with real-time monitoring
 
 ### 8. **AAX Decryption** (`src/crypto/`)
 - Activation bytes management (4-byte hex validation)

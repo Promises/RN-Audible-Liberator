@@ -325,24 +325,26 @@ export class AudiobookManager {
    * Download audiobook from Audible
    */
   async downloadBook(
+    account: Account,
     asin: string,
-    license: any,
-    outputPath: string
+    outputPath: string,
+    quality: string = 'High'
   ): Promise<string> {
     try {
       console.log(`Downloading book ${asin}...`);
 
-      const licenseJson = JSON.stringify(license);
+      const accountJson = JSON.stringify(account);
       const response = await ExpoRustBridge!.downloadBook(
+        accountJson,
         asin,
-        licenseJson,
-        outputPath
+        outputPath,
+        quality
       );
 
-      const { file_path } = unwrapResult(response);
+      const { outputPath: filePath } = unwrapResult(response);
 
-      console.log(`Download complete: ${file_path}`);
-      return file_path;
+      console.log(`Download complete: ${filePath}`);
+      return filePath;
     } catch (error) {
       if (error instanceof RustBridgeError) {
         console.error('Download failed:', error.rustError);
@@ -392,20 +394,15 @@ export class AudiobookManager {
    * Complete download and decrypt workflow
    */
   async downloadAndDecrypt(
+    account: Account,
     asin: string,
-    license: any,
-    downloadPath: string,
     outputPath: string,
-    activationBytes: string
+    quality: string = 'High'
   ): Promise<string> {
     try {
-      // Download encrypted file
-      const aaxPath = await this.downloadBook(asin, license, downloadPath);
-
-      // Decrypt to M4B
-      const m4bPath = await this.decryptBook(aaxPath, outputPath, activationBytes);
-
-      return m4bPath;
+      // Download encrypted file AND decrypt in one call
+      const filePath = await this.downloadBook(account, asin, outputPath, quality);
+      return filePath;
     } catch (error) {
       console.error('Download and decrypt failed:', error);
       throw error;
@@ -531,11 +528,10 @@ export async function completeWorkflowExample(
       const license = { /* license data */ };
 
       const m4bPath = await audiobookManager.downloadAndDecrypt(
+        account,
         book.audible_product_id,
-        license,
-        `/path/to/downloads/${book.audible_product_id}.aax`,
-        `/path/to/output/${book.audible_product_id}.m4b`,
-        account.decrypt_key
+        `/path/to/output/`,
+        'High'
       );
 
       console.log(`Book processed: ${m4bPath}`);

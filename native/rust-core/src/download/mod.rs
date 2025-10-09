@@ -91,7 +91,9 @@
 pub mod manager;
 pub mod stream;
 pub mod progress;
+pub mod persistent_manager;
 
 // Re-export commonly used types
 pub use manager::DownloadManager;
 pub use progress::DownloadProgress;
+pub use persistent_manager::{PersistentDownloadManager, DownloadTask, TaskStatus};

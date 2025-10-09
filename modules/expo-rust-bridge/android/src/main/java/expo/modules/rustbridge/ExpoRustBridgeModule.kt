@@ -596,6 +596,120 @@ class ExpoRustBridgeModule : Module() {
       }
     }
 
+    // ============================================================================
+    // DOWNLOAD MANAGER FUNCTIONS
+    // ============================================================================
+
+    /**
+     * Enqueue a download using the persistent download manager.
+     *
+     * @param dbPath Path to SQLite database
+     * @param accountJson Complete account JSON
+     * @param asin Book ASIN
+     * @param title Book title
+     * @param outputDirectory Output directory (can be SAF URI)
+     * @param quality Download quality
+     * @return Promise resolving to Map with task_id
+     */
+    AsyncFunction("enqueueDownload") { dbPath: String, accountJson: String, asin: String, title: String, outputDirectory: String, quality: String ->
+      try {
+        DownloadService.enqueueBook(
+          context = appContext.reactContext ?: throw Exception("Context not available"),
+          dbPath = dbPath,
+          accountJson = accountJson,
+          asin = asin,
+          title = title,
+          outputDirectory = outputDirectory,
+          quality = quality
+        )
+
+        mapOf(
+          "success" to true,
+          "data" to mapOf("message" to "Download enqueued")
+        )
+      } catch (e: Exception) {
+        mapOf(
+          "success" to false,
+          "error" to "Enqueue download error: ${e.message}"
+        )
+      }
+    }
+
+    /**
+     * Get download task status.
+     *
+     * @param dbPath Path to SQLite database
+     * @param taskId Task ID
+     * @return Map with task details
+     */
+    Function("getDownloadTask") { dbPath: String, taskId: String ->
+      val params = JSONObject().apply {
+        put("db_path", dbPath)
+        put("task_id", taskId)
+      }
+      parseJsonResponse(nativeGetDownloadTask(params.toString()))
+    }
+
+    /**
+     * List download tasks with optional filter.
+     *
+     * @param dbPath Path to SQLite database
+     * @param filter Optional status filter ("queued", "downloading", "completed", "failed", etc.)
+     * @return Map with list of tasks
+     */
+    Function("listDownloadTasks") { dbPath: String, filter: String? ->
+      val params = JSONObject().apply {
+        put("db_path", dbPath)
+        filter?.let { put("filter", it) }
+      }
+      parseJsonResponse(nativeListDownloadTasks(params.toString()))
+    }
+
+    /**
+     * Pause a download.
+     *
+     * @param dbPath Path to SQLite database
+     * @param taskId Task ID to pause
+     * @return Map with success status
+     */
+    Function("pauseDownload") { dbPath: String, taskId: String ->
+      val params = JSONObject().apply {
+        put("db_path", dbPath)
+        put("task_id", taskId)
+      }
+      parseJsonResponse(nativePauseDownload(params.toString()))
+    }
+
+    /**
+     * Resume a paused download.
+     *
+     * @param dbPath Path to SQLite database
+     * @param taskId Task ID to resume
+     * @return Map with success status
+     */
+    Function("resumeDownload") { dbPath: String, taskId: String ->
+      val params = JSONObject().apply {
+        put("db_path", dbPath)
+        put("task_id", taskId)
+      }
+      parseJsonResponse(nativeResumeDownload(params.toString()))
+    }
+
+    /**
+     * Cancel a download.
+     *
+     * @param dbPath Path to SQLite database
+     * @param taskId Task ID to cancel
+     * @return Map with success status
+     */
+    Function("cancelDownload") { dbPath: String, taskId: String ->
+      val params = JSONObject().apply {
+        put("db_path", dbPath)
+        put("task_id", taskId)
+      }
+      parseJsonResponse(nativeCancelDownload(params.toString()))
+    }
+
     /**
      * Test bridge connection and verify Rust library is loaded.
      *
@@ -626,24 +740,6 @@ class ExpoRustBridgeModule : Module() {
   // ============================================================================
   // NATIVE METHOD DECLARATIONS (JNI Bridge)
   // ============================================================================
-
-  // All native methods accept a single JSON string parameter
-  private external fun nativeGenerateOAuthUrl(paramsJson: String): String
-  private external fun nativeParseOAuthCallback(paramsJson: String): String
-  private external fun nativeExchangeAuthCode(paramsJson: String): String
-  private external fun nativeRefreshAccessToken(paramsJson: String): String
-  private external fun nativeGetActivationBytes(paramsJson: String): String
-  private external fun nativeInitDatabase(paramsJson: String): String
-  private external fun nativeSyncLibrary(paramsJson: String): String
-  private external fun nativeSyncLibraryPage(paramsJson: String): String
-  private external fun nativeGetBooks(paramsJson: String): String
-  private external fun nativeSearchBooks(paramsJson: String): String
-  private external fun nativeDownloadBook(paramsJson: String): String
-  private external fun nativeDecryptAAX(paramsJson: String): String
-  private external fun nativeValidateActivationBytes(paramsJson: String): String
-  private external fun nativeGetSupportedLocales(paramsJson: String): String
-  private external fun nativeGetCustomerInformation(paramsJson: String): String
-  private external fun nativeLogFromRust(paramsJson: String): String
 
   // ============================================================================
   // JSON PARSING HELPERS
@@ -709,7 +805,7 @@ class ExpoRustBridgeModule : Module() {
   }
 
   // ============================================================================
-  // NATIVE LIBRARY LOADING
+  // NATIVE LIBRARY LOADING & JNI METHODS
   // ============================================================================
 
   companion object {
@@ -723,5 +819,35 @@ class ExpoRustBridgeModule : Module() {
         android.util.Log.w("ExpoRustBridge", "Failed to load rust_core library: ${e.message}")
       }
     }
+
+    // All native methods accept a single JSON string parameter
+    // Made static so DownloadService can access them
+    @JvmStatic external fun nativeGenerateOAuthUrl(paramsJson: String): String
+    @JvmStatic external fun nativeParseOAuthCallback(paramsJson: String): String
+    @JvmStatic external fun nativeExchangeAuthCode(paramsJson: String): String
+    @JvmStatic external fun nativeRefreshAccessToken(paramsJson: String): String
+    @JvmStatic external fun nativeGetActivationBytes(paramsJson: String): String
+    @JvmStatic external fun nativeInitDatabase(paramsJson: String): String
+    @JvmStatic external fun nativeSyncLibrary(paramsJson: String): String
+    @JvmStatic external fun nativeSyncLibraryPage(paramsJson: String): String
+    @JvmStatic external fun nativeGetBooks(paramsJson: String): String
+    @JvmStatic external fun nativeSearchBooks(paramsJson: String): String
+    @JvmStatic external fun nativeDownloadBook(paramsJson: String): String
+    @JvmStatic external fun nativeDecryptAAX(paramsJson: String): String
+    @JvmStatic external fun nativeValidateActivationBytes(paramsJson: String): String
+    @JvmStatic external fun nativeGetSupportedLocales(paramsJson: String): String
+    @JvmStatic external fun nativeGetCustomerInformation(paramsJson: String): String
+    @JvmStatic external fun nativeLogFromRust(paramsJson: String): String
+
+    // License function (get license without downloading)
+    @JvmStatic external fun nativeGetDownloadLicense(paramsJson: String): String
+
+    // Download Manager functions
+    @JvmStatic external fun nativeEnqueueDownload(paramsJson: String): String
+    @JvmStatic external fun nativeGetDownloadTask(paramsJson: String): String
+    @JvmStatic external fun nativeListDownloadTasks(paramsJson: String): String
+    @JvmStatic external fun nativePauseDownload(paramsJson: String): String
+    @JvmStatic external fun nativeResumeDownload(paramsJson: String): String
+    @JvmStatic external fun nativeCancelDownload(paramsJson: String): String
   }
 }

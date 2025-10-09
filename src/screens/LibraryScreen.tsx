@@ -1,11 +1,20 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {View, Text, FlatList, TouchableOpacity, RefreshControl, Image, Alert, ActivityIndicator} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useStyles} from '../hooks/useStyles';
 import {useTheme} from '../styles/theme';
 import type {Theme} from '../hooks/useStyles';
-import {getBooks, initializeDatabase, downloadAndDecryptBook, refreshToken} from '../../modules/expo-rust-bridge';
-import type {Book, Account} from '../../modules/expo-rust-bridge';
+import {
+    getBooks,
+    initializeDatabase,
+    refreshToken,
+    enqueueDownload,
+    listDownloadTasks,
+    pauseDownload,
+    resumeDownload,
+    cancelDownload,
+} from '../../modules/expo-rust-bridge';
+import type {Book, Account, DownloadTask} from '../../modules/expo-rust-bridge';
 import {Paths} from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 
@@ -20,11 +29,46 @@ export default function LibraryScreen() {
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [totalCount, setTotalCount] = useState(0);
     const [hasMore, setHasMore] = useState(true);
-    const [downloadingAsins, setDownloadingAsins] = useState<Set<string>>(new Set());
+    const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map());
+    const progressInterval = useRef<NodeJS.Timeout | null>(null);
 
     // Load books from database on mount
     useEffect(() => {
         loadBooks(true);
+    }, []);
+
+    // Poll for download progress
+    useEffect(() => {
+        const pollProgress = () => {
+            try {
+                const cacheUri = Paths.cache.uri;
+                const cachePath = cacheUri.replace('file://', '');
+                const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+                const tasks = listDownloadTasks(dbPath);
+                const taskMap = new Map<string, DownloadTask>();
+
+                tasks.forEach(task => {
+                    taskMap.set(task.asin, task);
+                });
+
+                setDownloadTasks(taskMap);
+            } catch (error) {
+                console.error('[LibraryScreen] Error polling progress:', error);
+            }
+        };
+
+        // Initial poll
+        pollProgress();
+
+        // Poll every 2 seconds
+        progressInterval.current = setInterval(pollProgress, 2000);
+
+        return () => {
+            if (progressInterval.current) {
+                clearInterval(progressInterval.current);
+            }
+        };
     }, []);
 
     const loadBooks = async (reset: boolean = false) => {
@@ -102,12 +146,35 @@ export default function LibraryScreen() {
     };
 
     const getStatus = (book: Book): { text: string; color: string } => {
-        if (downloadingAsins.has(book.audible_product_id)) {
-            return {text: '⬇ Downloading...', color: colors.info};
+        const task = downloadTasks.get(book.audible_product_id);
+
+        if (task) {
+            const percentage = task.total_bytes > 0
+                ? ((task.bytes_downloaded / task.total_bytes) * 100).toFixed(1)
+                : '0.0';
+
+            switch (task.status) {
+                case 'queued':
+                    return {text: '⏳ Queued', color: colors.textSecondary};
+                case 'downloading':
+                    return {text: `⬇ ${percentage}%`, color: colors.info};
+                case 'paused':
+                    return {text: `⏸ Paused ${percentage}%`, color: colors.warning};
+                case 'completed':
+                    return {text: '✓ Downloaded', color: colors.success};
+                case 'failed':
+                    return {text: '✗ Failed', color: colors.error};
+                case 'cancelled':
+                    return {text: 'Cancelled', color: colors.textSecondary};
+                default:
+                    return {text: 'Available', color: colors.textSecondary};
+            }
         }
+
         if (book.file_path) {
             return {text: '✓ Downloaded', color: colors.success};
         }
+
         return {text: 'Available', color: colors.textSecondary};
     };
 
@@ -134,8 +201,10 @@ export default function LibraryScreen() {
                         const newTokens = await refreshToken(account);
                         // Update account with new tokens
                         account.identity.access_token.token = newTokens.access_token;
-                        account.identity.refresh_token = newTokens.refresh_token;
-                        const newExpiresAt = new Date(Date.now() + parseInt(newTokens.expires_in) * 1000).toISOString();
+                        if (newTokens.refresh_token) {
+                            account.identity.refresh_token = newTokens.refresh_token;
+                        }
+                        const newExpiresAt = new Date(Date.now() + parseInt(newTokens.expires_in.toString()) * 1000).toISOString();
                         account.identity.access_token.expires_at = newExpiresAt;
 
                         // Save updated account
@@ -150,7 +219,6 @@ export default function LibraryScreen() {
             }
 
             // Get download directory from settings
-            // Kotlin module properly handles both SAF URIs (content://) and file paths
             const downloadDir = await SecureStore.getItemAsync(DOWNLOAD_PATH_KEY);
 
             if (!downloadDir) {
@@ -162,47 +230,94 @@ export default function LibraryScreen() {
                 return;
             }
 
-            console.log('[LibraryScreen] Download directory:', downloadDir);
+            console.log('[LibraryScreen] Enqueueing download:', book.title, book.audible_product_id);
 
-            // Mark as downloading
-            setDownloadingAsins(prev => new Set(prev).add(book.audible_product_id));
+            // Get database path
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
 
-            console.log('[LibraryScreen] Starting download:', book.title, book.audible_product_id);
-
-            // Download and decrypt
-            const result = await downloadAndDecryptBook(
+            // Enqueue download (runs in background)
+            await enqueueDownload(
+                dbPath,
                 account,
                 book.audible_product_id,
+                book.title,
                 downloadDir,
                 'High'
             );
 
-            console.log('[LibraryScreen] Download complete:', result);
-
-            // Update book with file path
-            setAudiobooks(prev =>
-                prev.map(b =>
-                    b.audible_product_id === book.audible_product_id
-                        ? {...b, file_path: result.outputPath}
-                        : b
-                )
-            );
+            console.log('[LibraryScreen] Download enqueued successfully');
 
             Alert.alert(
-                'Download Complete',
-                `${book.title}\n\nSaved to: ${result.outputPath}\nDuration: ${Math.floor(result.duration / 3600)}h ${Math.floor((result.duration % 3600) / 60)}m`
+                'Download Started',
+                `${book.title} has been added to the download queue. You can monitor progress here or leave the app.`
             );
 
         } catch (error: any) {
             console.error('[LibraryScreen] Download error:', error);
             Alert.alert('Download Failed', error.message || 'Unknown error');
-        } finally {
-            // Remove from downloading
-            setDownloadingAsins(prev => {
-                const next = new Set(prev);
-                next.delete(book.audible_product_id);
-                return next;
-            });
+        }
+    };
+
+    const handlePauseDownload = (book: Book) => {
+        try {
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+            const task = downloadTasks.get(book.audible_product_id);
+            if (task) {
+                pauseDownload(dbPath, task.task_id);
+                console.log('[LibraryScreen] Paused download:', book.title);
+            }
+        } catch (error) {
+            console.error('[LibraryScreen] Pause error:', error);
+        }
+    };
+
+    const handleResumeDownload = (book: Book) => {
+        try {
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+            const task = downloadTasks.get(book.audible_product_id);
+            if (task) {
+                resumeDownload(dbPath, task.task_id);
+                console.log('[LibraryScreen] Resumed download:', book.title);
+            }
+        } catch (error) {
+            console.error('[LibraryScreen] Resume error:', error);
+        }
+    };
+
+    const handleCancelDownload = (book: Book) => {
+        try {
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+            const task = downloadTasks.get(book.audible_product_id);
+            if (task) {
+                Alert.alert(
+                    'Cancel Download',
+                    `Are you sure you want to cancel downloading "${book.title}"?`,
+                    [
+                        { text: 'No', style: 'cancel' },
+                        {
+                            text: 'Yes',
+                            style: 'destructive',
+                            onPress: () => {
+                                cancelDownload(dbPath, task.task_id);
+                                console.log('[LibraryScreen] Cancelled download:', book.title);
+                            }
+                        }
+                    ]
+                );
+            }
+        } catch (error) {
+            console.error('[LibraryScreen] Cancel error:', error);
         }
     };
 
@@ -210,8 +325,12 @@ export default function LibraryScreen() {
         const status = getStatus(item);
         const authorText = (item.authors?.length || 0) > 0 ? item.authors.join(', ') : 'Unknown Author';
         const coverUrl = getCoverUrl(item);
-        const isDownloading = downloadingAsins.has(item.audible_product_id);
-        const isDownloaded = !!item.file_path;
+        const task = downloadTasks.get(item.audible_product_id);
+        const isDownloaded = !!item.file_path || task?.status === 'completed';
+        const canDownload = !task || task.status === 'failed' || task.status === 'cancelled';
+        const isDownloading = task?.status === 'downloading';
+        const isPaused = task?.status === 'paused';
+        const isQueued = task?.status === 'queued';
 
         return (
             <TouchableOpacity style={styles.item} onPress={() => console.log('Item pressed:', item)}>
@@ -241,7 +360,9 @@ export default function LibraryScreen() {
                             </Text>
                         </View>
                     </View>
-                    {!isDownloaded && !isDownloading && (
+
+                    {/* Show download button if not downloaded and no active task */}
+                    {!isDownloaded && canDownload && (
                         <TouchableOpacity
                             style={styles.downloadButton}
                             onPress={() => handleDownload(item)}
@@ -249,9 +370,41 @@ export default function LibraryScreen() {
                             <Text style={styles.downloadButtonText}>⬇</Text>
                         </TouchableOpacity>
                     )}
+
+                    {/* Show pause button if downloading */}
                     {isDownloading && (
+                        <TouchableOpacity
+                            style={styles.pauseButton}
+                            onPress={() => handlePauseDownload(item)}
+                        >
+                            <Text style={styles.pauseButtonText}>⏸</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* Show resume button if paused */}
+                    {isPaused && (
+                        <TouchableOpacity
+                            style={styles.resumeButton}
+                            onPress={() => handleResumeDownload(item)}
+                        >
+                            <Text style={styles.resumeButtonText}>▶</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* Show cancel button if downloading/queued/paused */}
+                    {(isDownloading || isPaused || isQueued) && (
+                        <TouchableOpacity
+                            style={styles.cancelButton}
+                            onPress={() => handleCancelDownload(item)}
+                        >
+                            <Text style={styles.cancelButtonText}>✕</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* Show spinner if queued */}
+                    {isQueued && (
                         <View style={styles.downloadButton}>
-                            <ActivityIndicator size="small" color={colors.info} />
+                            <ActivityIndicator size="small" color={colors.textSecondary} />
                         </View>
                     )}
                 </View>
@@ -416,6 +569,44 @@ const createStyles = (theme: Theme) => ({
         alignItems: 'center' as const,
     },
     downloadButtonText: {
+        fontSize: 20,
+        color: theme.colors.background,
+    },
+    pauseButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: theme.colors.warning,
+        justifyContent: 'center' as const,
+        alignItems: 'center' as const,
+        marginRight: theme.spacing.xs,
+    },
+    pauseButtonText: {
+        fontSize: 18,
+        color: theme.colors.background,
+    },
+    resumeButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: theme.colors.success,
+        justifyContent: 'center' as const,
+        alignItems: 'center' as const,
+        marginRight: theme.spacing.xs,
+    },
+    resumeButtonText: {
+        fontSize: 18,
+        color: theme.colors.background,
+    },
+    cancelButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: theme.colors.error,
+        justifyContent: 'center' as const,
+        alignItems: 'center' as const,
+    },
+    cancelButtonText: {
         fontSize: 20,
         color: theme.colors.background,
     },

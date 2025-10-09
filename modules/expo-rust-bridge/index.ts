@@ -232,12 +232,34 @@ export interface SyncStats {
 // ----------------------------------------------------------------------------
 
 /**
- * Download state enumeration.
+ * Download task status enumeration.
  */
-export type DownloadState = 'Queued' | 'Downloading' | 'Paused' | 'Completed' | 'Failed' | 'Cancelled';
+export type TaskStatus = 'queued' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled';
 
 /**
- * Real-time download progress information.
+ * Download task representing a book download.
+ */
+export interface DownloadTask {
+  task_id: string;
+  asin: string;
+  title: string;
+  status: TaskStatus;
+  bytes_downloaded: number;
+  total_bytes: number;
+  download_url: string;
+  download_path: string;
+  output_path: string;
+  request_headers: Record<string, string>;
+  error?: string;
+  retry_count: number;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
+/**
+ * Legacy: Real-time download progress information.
+ * @deprecated Use DownloadTask instead
  */
 export interface DownloadProgress {
   asin: string;
@@ -247,7 +269,7 @@ export interface DownloadProgress {
   percent_complete: number;
   download_speed: number; // bytes/sec
   eta_seconds: number;
-  state: DownloadState;
+  state: TaskStatus;
 }
 
 // ============================================================================
@@ -544,6 +566,75 @@ export interface ExpoRustBridgeModule {
   getAudioInfo(
     filePath: string
   ): Promise<RustResponse<{ duration: number; bitrate: string; format: string; size: string }>>;
+
+  // --------------------------------------------------------------------------
+  // Download Manager
+  // --------------------------------------------------------------------------
+
+  /**
+   * Enqueue a download using the persistent download manager.
+   *
+   * @param dbPath - Path to SQLite database
+   * @param accountJson - JSON-serialized Account object
+   * @param asin - Book ASIN
+   * @param title - Book title
+   * @param outputDirectory - Output directory (can be SAF URI)
+   * @param quality - Download quality
+   * @returns Success message
+   */
+  enqueueDownload(
+    dbPath: string,
+    accountJson: string,
+    asin: string,
+    title: string,
+    outputDirectory: string,
+    quality: string
+  ): Promise<RustResponse<{ message: string }>>;
+
+  /**
+   * Get download task status.
+   *
+   * @param dbPath - Path to SQLite database
+   * @param taskId - Task ID
+   * @returns Task details
+   */
+  getDownloadTask(dbPath: string, taskId: string): RustResponse<DownloadTask>;
+
+  /**
+   * List download tasks with optional filter.
+   *
+   * @param dbPath - Path to SQLite database
+   * @param filter - Optional status filter
+   * @returns List of tasks
+   */
+  listDownloadTasks(dbPath: string, filter?: TaskStatus): RustResponse<{ tasks: DownloadTask[] }>;
+
+  /**
+   * Pause a download.
+   *
+   * @param dbPath - Path to SQLite database
+   * @param taskId - Task ID to pause
+   * @returns Success status
+   */
+  pauseDownload(dbPath: string, taskId: string): RustResponse<{ success: boolean }>;
+
+  /**
+   * Resume a paused download.
+   *
+   * @param dbPath - Path to SQLite database
+   * @param taskId - Task ID to resume
+   * @returns Success status
+   */
+  resumeDownload(dbPath: string, taskId: string): RustResponse<{ success: boolean }>;
+
+  /**
+   * Cancel a download.
+   *
+   * @param dbPath - Path to SQLite database
+   * @param taskId - Task ID to cancel
+   * @returns Success status
+   */
+  cancelDownload(dbPath: string, taskId: string): RustResponse<{ success: boolean }>;
 }
 
 // ============================================================================
@@ -975,6 +1066,105 @@ async function downloadAndDecryptBook(
   return unwrapResult(response);
 }
 
+/**
+ * Enqueue a download using the persistent download manager.
+ *
+ * This starts a background download that can be paused, resumed, and monitored.
+ * The download continues even if the app is backgrounded.
+ *
+ * @param dbPath - Path to database file
+ * @param account - Account with authentication
+ * @param asin - Book ASIN to download
+ * @param title - Book title
+ * @param outputDirectory - Directory to save file (supports SAF URIs)
+ * @param quality - Download quality (defaults to "High")
+ * @throws {RustBridgeError} If enqueue fails
+ *
+ * @example
+ * ```typescript
+ * await enqueueDownload(dbPath, account, 'B07NP9L44Y', 'A Mind of Her Own', downloadDir);
+ * ```
+ */
+async function enqueueDownload(
+  dbPath: string,
+  account: Account,
+  asin: string,
+  title: string,
+  outputDirectory: string,
+  quality: string = 'High'
+): Promise<void> {
+  const accountJson = JSON.stringify(account);
+
+  const response = await NativeModule!.enqueueDownload(
+    dbPath,
+    accountJson,
+    asin,
+    title,
+    outputDirectory,
+    quality
+  );
+
+  unwrapResult(response);
+}
+
+/**
+ * Get download task status.
+ *
+ * @param dbPath - Path to database file
+ * @param taskId - Task ID
+ * @returns Task details
+ */
+function getDownloadTask(dbPath: string, taskId: string): DownloadTask {
+  const response = NativeModule!.getDownloadTask(dbPath, taskId);
+  return unwrapResult(response);
+}
+
+/**
+ * List all download tasks with optional filter.
+ *
+ * @param dbPath - Path to database file
+ * @param filter - Optional status filter
+ * @returns Array of tasks
+ */
+function listDownloadTasks(dbPath: string, filter?: TaskStatus): DownloadTask[] {
+  const response = NativeModule!.listDownloadTasks(dbPath, filter);
+  const data = unwrapResult(response);
+  return data.tasks;
+}
+
+/**
+ * Pause a download.
+ *
+ * @param dbPath - Path to database file
+ * @param taskId - Task ID to pause
+ */
+function pauseDownload(dbPath: string, taskId: string): void {
+  const response = NativeModule!.pauseDownload(dbPath, taskId);
+  unwrapResult(response);
+}
+
+/**
+ * Resume a paused download.
+ *
+ * @param dbPath - Path to database file
+ * @param taskId - Task ID to resume
+ */
+function resumeDownload(dbPath: string, taskId: string): void {
+  const response = NativeModule!.resumeDownload(dbPath, taskId);
+  unwrapResult(response);
+}
+
+/**
+ * Cancel a download.
+ *
+ * @param dbPath - Path to database file
+ * @param taskId - Task ID to cancel
+ */
+function cancelDownload(dbPath: string, taskId: string): void {
+  const response = NativeModule!.cancelDownload(dbPath, taskId);
+  unwrapResult(response);
+}
+
 // ============================================================================
 // Exports
 // ============================================================================
@@ -998,4 +1188,11 @@ export {
   generateDeviceSerial,
   unwrapResult,
   RustBridgeError,
+  // Download Manager
+  enqueueDownload,
+  getDownloadTask,
+  listDownloadTasks,
+  pauseDownload,
+  resumeDownload,
+  cancelDownload,
 };

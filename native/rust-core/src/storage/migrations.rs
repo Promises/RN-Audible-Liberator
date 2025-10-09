@@ -44,6 +44,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<()> {
 
     // Run all migrations in order
     run_migration(pool, 1, "initial_schema", create_initial_schema(pool)).await?;
+    run_migration(pool, 2, "download_tasks", create_download_tasks_table(pool)).await?;
 
     Ok(())
 }
@@ -404,4 +405,53 @@ mod tests {
 
         assert_eq!(fk_enabled, 1, "Foreign keys not enabled");
     }
+}
+
+/// Create download_tasks table for Download Manager
+///
+/// This table stores persistent state for download operations including
+/// queue position, partial download progress, and error states.
+async fn create_download_tasks_table(pool: &SqlitePool) -> Result<()> {
+    pool.execute(
+        r#"
+-- ============================================================================
+-- DOWNLOAD MANAGER TABLES
+-- ============================================================================
+
+-- DownloadTasks table: Persistent download queue and state
+CREATE TABLE IF NOT EXISTS DownloadTasks (
+    task_id TEXT PRIMARY KEY,  -- UUID
+    asin TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL,  -- "queued", "downloading", "paused", "completed", "failed", "cancelled"
+
+    -- Download progress
+    bytes_downloaded INTEGER NOT NULL DEFAULT 0,
+    total_bytes INTEGER NOT NULL DEFAULT 0,
+
+    -- Download info
+    download_url TEXT NOT NULL,
+    download_path TEXT NOT NULL,  -- Cache path for encrypted file
+    output_path TEXT NOT NULL,    -- Final path after decryption
+    request_headers TEXT NOT NULL, -- JSON object with HTTP headers
+
+    -- Error tracking
+    error TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+
+    -- Timestamps
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TEXT,
+    completed_at TEXT
+);
+
+-- Indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_download_tasks_status ON DownloadTasks(status);
+CREATE INDEX IF NOT EXISTS idx_download_tasks_asin ON DownloadTasks(asin);
+CREATE INDEX IF NOT EXISTS idx_download_tasks_created_at ON DownloadTasks(created_at);
+        "#,
+    )
+    .await?;
+
+    Ok(())
 }

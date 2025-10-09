@@ -844,7 +844,7 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeSearch
 ///   }
 /// }
 /// ```
-#[no_mangle]
+
 // ============================================================================
 // DECRYPTION FUNCTIONS
 // ============================================================================
@@ -1358,6 +1358,527 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeDownlo
             })?;
 
             Ok(success_response(result))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+// ============================================================================
+// LICENSE FUNCTIONS
+// ============================================================================
+
+/// Get download license without downloading
+///
+/// This allows getting the license info (URL, keys, size) to enqueue in download manager
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "accountJson": "{ ... }",
+///   "asin": "B07T2F8VJM",
+///   "quality": "High"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "download_url": "https://...",
+///     "total_bytes": 72000000,
+///     "aaxc_key": "...",
+///     "aaxc_iv": "...",
+///     "request_headers": {"User-Agent": "..."}
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetDownloadLicense(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            #[serde(rename = "accountJson")]
+            account_json: String,
+            asin: String,
+            quality: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let result = RUNTIME.block_on(async {
+                let account: crate::api::auth::Account = serde_json::from_str(&params.account_json)
+                    .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
+
+                let quality = match params.quality.as_str() {
+                    "Low" => crate::api::content::DownloadQuality::Low,
+                    "Normal" => crate::api::content::DownloadQuality::Normal,
+                    "High" => crate::api::content::DownloadQuality::High,
+                    "Extreme" => crate::api::content::DownloadQuality::Extreme,
+                    _ => crate::api::content::DownloadQuality::High,
+                };
+
+                let client = crate::api::client::AudibleClient::new(account)?;
+                let license = client.build_download_license(&params.asin, quality, false).await?;
+
+                // Extract AAXC keys
+                let (key_hex, iv_hex) = if let Some(ref keys) = license.decryption_keys {
+                    if !keys.is_empty() && keys[0].key_part_1.len() == 16 {
+                        let key = keys[0].key_part_1.iter()
+                            .map(|b| format!("{:02x}", b))
+                            .collect::<String>();
+                        let iv = if let Some(ref iv_bytes) = keys[0].key_part_2 {
+                            iv_bytes.iter()
+                                .map(|b| format!("{:02x}", b))
+                                .collect::<String>()
+                        } else {
+                            return Err(crate::LibationError::InvalidInput("No IV in AAXC keys".to_string()));
+                        };
+                        (key, iv)
+                    } else {
+                        return Err(crate::LibationError::InvalidInput("Unsupported key format (only AAXC supported)".to_string()));
+                    }
+                } else {
+                    return Err(crate::LibationError::InvalidInput("No decryption keys in license".to_string()));
+                };
+
+                // Build request headers
+                let mut request_headers = std::collections::HashMap::new();
+                request_headers.insert("User-Agent".to_string(), "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0".to_string());
+
+                // Get file size from HTTP HEAD request
+                let http_client = reqwest::Client::new();
+                let head_response = http_client
+                    .head(&license.download_url)
+                    .header("User-Agent", "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0")
+                    .send()
+                    .await
+                    .map_err(|e| crate::LibationError::NetworkError {
+                        message: format!("HEAD request failed: {}", e),
+                        is_transient: true,
+                    })?;
+
+                let total_bytes = head_response
+                    .headers()
+                    .get("content-length")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                #[derive(Serialize)]
+                struct LicenseInfo {
+                    download_url: String,
+                    total_bytes: u64,
+                    aaxc_key: String,
+                    aaxc_iv: String,
+                    request_headers: std::collections::HashMap<String, String>,
+                }
+
+                Ok::<_, crate::LibationError>(LicenseInfo {
+                    download_url: license.download_url,
+                    total_bytes,
+                    aaxc_key: key_hex,
+                    aaxc_iv: iv_hex,
+                    request_headers,
+                })
+            })?;
+
+            Ok(success_response(result))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+// ============================================================================
+// DOWNLOAD MANAGER FUNCTIONS
+// ============================================================================
+
+/// Enqueue a download in the persistent download manager
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db",
+///   "asin": "B001",
+///   "title": "Book Title",
+///   "download_url": "https://...",
+///   "total_bytes": 10000000,
+///   "download_path": "/cache/B001.aax",
+///   "output_path": "/output/B001.m4b",
+///   "request_headers": {"User-Agent": "..."}
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "task_id": "uuid-string"
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeEnqueueDownload(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            asin: String,
+            title: String,
+            download_url: String,
+            total_bytes: u64,
+            download_path: String,
+            output_path: String,
+            request_headers: std::collections::HashMap<String, String>,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let task_id = RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let manager = crate::download::PersistentDownloadManager::new(
+                    std::sync::Arc::new(db.pool().clone()),
+                    3, // max concurrent downloads
+                ).await?;
+
+                manager.enqueue_download(
+                    params.asin,
+                    params.title,
+                    params.download_url,
+                    params.total_bytes,
+                    params.download_path,
+                    params.output_path,
+                    params.request_headers,
+                ).await
+            })?;
+
+            let response = serde_json::json!({
+                "task_id": task_id,
+            });
+
+            Ok(success_response(response))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Get download task status
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db",
+///   "task_id": "uuid-string"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "task_id": "...",
+///     "asin": "B001",
+///     "title": "Book Title",
+///     "status": "downloading",
+///     "bytes_downloaded": 5000000,
+///     "total_bytes": 10000000,
+///     ...
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetDownloadTask(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            task_id: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let task = RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let manager = crate::download::PersistentDownloadManager::new(
+                    std::sync::Arc::new(db.pool().clone()),
+                    3,
+                ).await?;
+
+                manager.get_task(&params.task_id).await
+            })?;
+
+            Ok(success_response(task))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// List download tasks with optional filter
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db",
+///   "filter": "downloading"  // optional: "queued", "downloading", "completed", "failed", etc.
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "tasks": [...]
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeListDownloadTasks(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            filter: Option<String>,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let tasks = RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let manager = crate::download::PersistentDownloadManager::new(
+                    std::sync::Arc::new(db.pool().clone()),
+                    3,
+                ).await?;
+
+                let filter = if let Some(ref f) = params.filter {
+                    Some(crate::download::TaskStatus::from_str(f)?)
+                } else {
+                    None
+                };
+
+                manager.list_tasks(filter).await
+            })?;
+
+            let response = serde_json::json!({
+                "tasks": tasks,
+            });
+
+            Ok(success_response(response))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Pause a download
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db",
+///   "task_id": "uuid-string"
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativePauseDownload(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            task_id: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let manager = crate::download::PersistentDownloadManager::new(
+                    std::sync::Arc::new(db.pool().clone()),
+                    3,
+                ).await?;
+
+                manager.pause_download(&params.task_id).await
+            })?;
+
+            Ok(success_response(serde_json::json!({"success": true})))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Resume a paused download
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db",
+///   "task_id": "uuid-string"
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeResumeDownload(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            task_id: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let manager = crate::download::PersistentDownloadManager::new(
+                    std::sync::Arc::new(db.pool().clone()),
+                    3,
+                ).await?;
+
+                manager.resume_download(&params.task_id).await
+            })?;
+
+            Ok(success_response(serde_json::json!({"success": true})))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Cancel a download
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db",
+///   "task_id": "uuid-string"
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeCancelDownload(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            task_id: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let manager = crate::download::PersistentDownloadManager::new(
+                    std::sync::Arc::new(db.pool().clone()),
+                    3,
+                ).await?;
+
+                manager.cancel_download(&params.task_id).await
+            })?;
+
+            Ok(success_response(serde_json::json!({"success": true})))
         })() {
             Ok(result) => result,
             Err(e) => error_response(&e.to_string()),

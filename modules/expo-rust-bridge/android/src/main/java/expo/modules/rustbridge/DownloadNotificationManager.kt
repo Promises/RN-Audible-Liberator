@@ -313,9 +313,11 @@ class DownloadNotificationManager(private val context: Context) {
      * Cancel all notifications
      */
     fun cancelAll() {
+        Log.d(TAG, "Cancelling all notifications")
         notificationManager.cancel(NOTIFICATION_ID)
         notificationManager.cancel(NOTIFICATION_ID + 1)
         notificationManager.cancel(NOTIFICATION_ID + 2)
+        Log.d(TAG, "All notifications cancelled")
     }
 
     /**

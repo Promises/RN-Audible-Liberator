@@ -220,11 +220,23 @@ class DownloadActionReceiver : BroadcastReceiver() {
                     val cancelParsed = parseJsonResponse(cancelResult)
 
                     if (cancelParsed["success"] == true) {
+                        // Clear manual pause marker
+                        clearManuallyPaused(context, asin)
+
                         Log.d(TAG, "Successfully cancelled download: $asin")
+
+                        // Stop orchestrator monitoring (stops any ongoing conversion)
+                        val stopIntent = Intent(context, DownloadService::class.java).apply {
+                            action = "expo.modules.rustbridge.STOP_MONITORING"
+                            putExtra("asin", asin)
+                        }
+                        context.startService(stopIntent)
+                        Log.d(TAG, "Sent stop monitoring intent for $asin")
 
                         // Cancel all notifications
                         val notificationManager = DownloadNotificationManager(context)
                         notificationManager.cancelAll()
+                        Log.d(TAG, "Cleared all notifications for cancelled download")
                     } else {
                         Log.e(TAG, "Failed to cancel: ${cancelParsed["error"]}")
                     }

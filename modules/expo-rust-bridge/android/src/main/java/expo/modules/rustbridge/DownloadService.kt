@@ -30,6 +30,7 @@ class DownloadService : Service() {
         private const val ACTION_PAUSE_TASK = "expo.modules.rustbridge.PAUSE_TASK"
         private const val ACTION_RESUME_TASK = "expo.modules.rustbridge.RESUME_TASK"
         private const val ACTION_CANCEL_TASK = "expo.modules.rustbridge.CANCEL_TASK"
+        private const val ACTION_STOP_MONITORING = "expo.modules.rustbridge.STOP_MONITORING"
         private const val ACTION_SET_WIFI_ONLY = "expo.modules.rustbridge.SET_WIFI_ONLY"
 
         private const val EXTRA_DB_PATH = "db_path"
@@ -176,6 +177,7 @@ class DownloadService : Service() {
             ACTION_PAUSE_TASK -> handlePauseTask(intent)
             ACTION_RESUME_TASK -> handleResumeTask(intent)
             ACTION_CANCEL_TASK -> handleCancelTask(intent)
+            ACTION_STOP_MONITORING -> handleStopMonitoring(intent)
             ACTION_SET_WIFI_ONLY -> handleSetWifiOnly(intent)
         }
 
@@ -272,9 +274,55 @@ class DownloadService : Service() {
         }
     }
 
+    private fun handleStopMonitoring(intent: Intent) {
+        val asin = intent.getStringExtra("asin") ?: return
+        Log.d(TAG, "Stopping monitoring for: $asin")
+        orchestrator.stopMonitoring(asin)
+
+        // Check if there are any active downloads left
+        checkAndStopServiceIfIdle()
+    }
+
+    /**
+     * Check if service should stop (no active downloads)
+     */
+    private fun checkAndStopServiceIfIdle() {
+        try {
+            val listParams = JSONObject().apply {
+                put("db_path", dbPath)
+                put("filter", "downloading")
+            }
+
+            val listResult = ExpoRustBridgeModule.nativeListDownloadTasks(listParams.toString())
+            val json = JSONObject(listResult)
+
+            if (json.getBoolean("success")) {
+                val data = json.getJSONObject("data")
+                val tasks = data.getJSONArray("tasks")
+
+                if (tasks.length() == 0) {
+                    Log.d(TAG, "No active downloads remaining - stopping service")
+                    stopForeground(true) // Remove notification
+                    stopSelf()
+                } else {
+                    Log.d(TAG, "${tasks.length()} downloads still active - keeping service alive")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking active downloads", e)
+        }
+    }
+
     private fun handleSetWifiOnly(intent: Intent) {
         val wifiOnly = intent.getBooleanExtra(EXTRA_WIFI_ONLY, false)
         Log.d(TAG, "Setting WiFi-only mode: $wifiOnly")
         orchestrator.setWifiOnlyMode(wifiOnly)
+    }
+
+    /**
+     * Public helper to stop monitoring from broadcast receiver
+     */
+    fun stopMonitoringForAsin(asin: String) {
+        orchestrator.stopMonitoring(asin)
     }
 }

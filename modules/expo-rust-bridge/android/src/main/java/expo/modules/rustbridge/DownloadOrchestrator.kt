@@ -234,11 +234,16 @@ class DownloadOrchestrator(
                             "completed" -> {
                                 Log.d(TAG, "Download completed! Triggering conversion for $asin")
 
-                                // Trigger conversion
-                                triggerConversion(
-                                    asin, title, encryptedPath, decryptedCachePath,
-                                    outputDirectory, aaxcKey, aaxcIv
-                                )
+                                // Trigger conversion (cancellable via coroutine scope)
+                                try {
+                                    triggerConversion(
+                                        asin, title, encryptedPath, decryptedCachePath,
+                                        outputDirectory, aaxcKey, aaxcIv
+                                    )
+                                } catch (e: CancellationException) {
+                                    Log.d(TAG, "Conversion cancelled for $asin")
+                                    throw e // Re-throw to exit the monitoring loop
+                                }
 
                                 // Stop monitoring
                                 break
@@ -665,6 +670,15 @@ class DownloadOrchestrator(
             Log.e(TAG, "Error resuming download", e)
             false
         }
+    }
+
+    /**
+     * Stop all monitoring and conversion for an ASIN
+     */
+    fun stopMonitoring(asin: String) {
+        monitoringJobs[asin]?.cancel()
+        monitoringJobs.remove(asin)
+        Log.d(TAG, "Stopped monitoring for $asin")
     }
 
     /**

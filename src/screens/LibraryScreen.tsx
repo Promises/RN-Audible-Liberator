@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useRef} from 'react';
-import {View, Text, FlatList, TouchableOpacity, RefreshControl, Image, Alert, ActivityIndicator} from 'react-native';
+import {View, Text, FlatList, TouchableOpacity, RefreshControl, Image, Alert, ActivityIndicator, Platform, PermissionsAndroid} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useStyles} from '../hooks/useStyles';
 import {useTheme} from '../styles/theme';
@@ -178,8 +178,42 @@ export default function LibraryScreen() {
         return {text: 'Available', color: colors.textSecondary};
     };
 
+    const requestNotificationPermission = async (): Promise<boolean> => {
+        if (Platform.OS === 'android') {
+            if (Platform.Version >= 33) {
+                try {
+                    const granted = await PermissionsAndroid.request(
+                        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+                        {
+                            title: 'Notification Permission',
+                            message: 'LibriSync needs notification permission to show download progress',
+                            buttonPositive: 'OK',
+                        }
+                    );
+                    return granted === PermissionsAndroid.RESULTS.GRANTED;
+                } catch (err) {
+                    console.warn('[LibraryScreen] Notification permission error:', err);
+                    return false;
+                }
+            }
+            return true; // Android < 13 doesn't need runtime permission
+        }
+        return true; // iOS doesn't need this permission for foreground notifications
+    };
+
     const handleDownload = async (book: Book) => {
         try {
+            // Request notification permission first
+            const hasPermission = await requestNotificationPermission();
+            if (!hasPermission) {
+                Alert.alert(
+                    'Permission Required',
+                    'Please grant notification permission to see download progress',
+                    [{ text: 'OK' }]
+                );
+                return;
+            }
+
             // Get account from SecureStore
             const accountData = await SecureStore.getItemAsync('audible_account');
             if (!accountData) {

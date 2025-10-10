@@ -1,3 +1,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="expo.modules.rustbridge">
+
+    <application>
+        <!-- Download Service -->
+        <service
+            android:name=".DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Download Action Receiver (for notification buttons) -->
+        <receiver
+            android:name=".DownloadActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="expo.modules.rustbridge.PAUSE_DOWNLOAD" />
+                <action android:name="expo.modules.rustbridge.RESUME_DOWNLOAD" />
+                <action android:name="expo.modules.rustbridge.CANCEL_DOWNLOAD" />
+            </intent-filter>
+        </receiver>
+    </application>
 </manifest>

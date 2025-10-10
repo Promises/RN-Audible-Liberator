@@ -308,6 +308,42 @@ The `references/Libation/` directory contains the original C# Libation source co
 - Dependencies: `com.arthenica:smart-exception-java:0.1.1`
 - ELF alignment verified: 2**14 (16384 bytes = 16KB) ✅
 
+### ✅ Rich Download Notifications - COMPLETE! (Oct 10, 2025)
+- **Android Notifications**: ✅ Rich progress notifications with interactive controls
+- **Foreground Service**: ✅ Keeps downloads alive when app is backgrounded
+- **Manual Pause Tracking**: ✅ Distinguishes user pause from auto-pause (WiFi)
+- **Shared Manager Instance**: ✅ Global download manager cache for proper pause/resume
+
+**Notification Features:**
+- **Progress Notification**: Book title, percentage, file size (e.g., "45% • 190 / 459 MB")
+  - Updates every 2 seconds during download
+  - Pause and Cancel action buttons
+- **Paused Notification**: Shows "Download Paused" with current percentage
+  - Resume and Cancel action buttons
+  - Won't auto-resume on WiFi (respects manual pause)
+- **Stage Transitions**: Downloading → Decrypting → Copying → Complete
+- **Completion Notification**: "Ready to listen" with book title
+- **Error Notification**: Shows error message with option to retry
+
+**Architecture:**
+1. **DownloadOrchestrator**: Monitors Rust download manager, triggers notifications
+2. **DownloadNotificationManager**: Renders rich notifications with action buttons
+3. **DownloadActionReceiver**: BroadcastReceiver handles pause/resume/cancel from notification
+4. **DownloadService**: Android Foreground Service keeps downloads alive
+
+**Implementation Details:**
+- `DownloadNotificationManager.kt`: Rich notification builder with BigTextStyle
+- `DownloadActionReceiver.kt`: Handles notification button taps, manages manual pause tracking
+- `DownloadOrchestrator.kt`: Monitors loop skips progress updates when paused
+- `jni_bridge.rs`: Global download manager cache (`DOWNLOAD_MANAGERS`) for shared instances
+- Deleted old `manager.rs` to avoid confusion (only `PersistentDownloadManager` used)
+
+**Key Fixes:**
+- Shared manager instances via global cache (pause now actually stops download)
+- Manual pause tracking in SharedPreferences (won't auto-resume on WiFi)
+- Monitoring loop continues during pause but skips notifications (keeps paused UI visible)
+- Recursive JSON parsing for proper task list deserialization
+
 ### 🚧 Next Phase
 - **Enhanced Library UI**: Cover images, sorting, filtering, search
 - **Download Progress UI**: Real-time progress indicators in library list
@@ -323,8 +359,8 @@ See `LIBATION_PORT_PLAN.md` for comprehensive plan.
 2. ✅ ~~Paginated library sync~~ **COMPLETE**
 3. ✅ ~~FFmpeg-Kit integration~~ **COMPLETE**
 4. ✅ ~~Download and decrypt pipeline~~ **COMPLETE**
-5. **Enhanced library UI** - Cover images, sorting, filtering, search
-6. **Download progress UI** - Real-time progress indicators
+5. ✅ ~~Download progress UI~~ **COMPLETE** (Rich notifications with pause/resume/cancel)
+6. **Enhanced library UI** - Cover images, sorting, filtering, search
 7. **Activation bytes** - Fix binary blob extraction for AAX DRM (AAXC keys working)
 
 ## Build Architecture

@@ -107,9 +107,19 @@ class DownloadService : Service() {
     }
 
     private lateinit var orchestrator: DownloadOrchestrator
-    private lateinit var notificationManager: NotificationManager
+    private lateinit var notificationManager: DownloadNotificationManager
     private lateinit var dbPath: String
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // Track current download info for notifications
+    private var currentDownload: DownloadInfo? = null
+
+    data class DownloadInfo(
+        val asin: String,
+        val title: String,
+        val author: String? = null,
+        val totalBytes: Long = 0
+    )
 
     override fun onCreate() {
         super.onCreate()
@@ -120,21 +130,36 @@ class DownloadService : Service() {
         dbPath = File(cacheDir, "audible.db").absolutePath
 
         orchestrator = DownloadOrchestrator(applicationContext, dbPath)
-        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        createNotificationChannel()
+        notificationManager = DownloadNotificationManager(applicationContext)
 
         // Set up orchestrator callbacks
-        orchestrator.setProgressCallback { asin, status, percentage ->
-            updateNotification("$status: $asin", percentage.toInt())
+        orchestrator.setProgressCallback { asin, stage, percentage, bytesDownloaded, totalBytes ->
+            currentDownload?.let { download ->
+                val progress = DownloadNotificationManager.DownloadProgress(
+                    asin = download.asin,
+                    title = download.title,
+                    author = download.author,
+                    stage = stage,
+                    percentage = percentage.toInt(),
+                    bytesDownloaded = bytesDownloaded,
+                    totalBytes = totalBytes
+                )
+                notificationManager.showProgress(progress)
+            }
         }
 
         orchestrator.setCompletionCallback { asin, title, outputPath ->
-            showCompletionNotification(title, outputPath)
+            currentDownload?.let { download ->
+                notificationManager.showCompletion(download.title, download.author, outputPath)
+            }
+            currentDownload = null
         }
 
         orchestrator.setErrorCallback { asin, title, error ->
-            showErrorNotification(title, error)
+            currentDownload?.let { download ->
+                notificationManager.showError(download.title, download.author, error)
+            }
+            currentDownload = null
         }
     }
 
@@ -142,7 +167,9 @@ class DownloadService : Service() {
         Log.d(TAG, "onStartCommand: ${intent?.action}")
 
         // Start foreground immediately
-        startForeground(NOTIFICATION_ID, createNotification("Initializing...", 0))
+        val initialNotification = notificationManager.getInitialNotification()
+        Log.d(TAG, "Starting foreground service with notification")
+        startForeground(NOTIFICATION_ID, initialNotification)
 
         when (intent?.action) {
             ACTION_ENQUEUE_DOWNLOAD -> handleEnqueueDownload(intent)
@@ -177,6 +204,14 @@ class DownloadService : Service() {
 
         Log.d(TAG, "Enqueueing download via orchestrator: $asin - $title")
 
+        // Store current download info for notifications
+        currentDownload = DownloadInfo(
+            asin = asin,
+            title = title,
+            author = null, // TODO: Pass author from intent
+            totalBytes = 0
+        )
+
         // Use service scope to call suspend function
         serviceScope.launch {
             try {
@@ -184,6 +219,10 @@ class DownloadService : Service() {
                 Log.d(TAG, "Book enqueued successfully: $asin")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to enqueue book", e)
+                currentDownload?.let { download ->
+                    notificationManager.showError(download.title, download.author, e.message ?: "Unknown error")
+                }
+                currentDownload = null
             }
         }
     }
@@ -238,68 +277,4 @@ class DownloadService : Service() {
         Log.d(TAG, "Setting WiFi-only mode: $wifiOnly")
         orchestrator.setWifiOnlyMode(wifiOnly)
     }
-
-    // ========================================================================
-    // Notifications
-    // ========================================================================
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                NOTIFICATION_CHANNEL_ID,
-                "Audiobook Downloads",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Shows progress for audiobook downloads and conversions"
-                setShowBadge(false)
-            }
-            notificationManager.createNotificationChannel(channel)
-        }
-    }
-
-    private fun createNotification(title: String, progress: Int): Notification {
-        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Audiobook Download")
-            .setContentText(title)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setProgress(100, progress, progress == 0)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-    }
-
-    private fun updateNotification(title: String, progress: Int) {
-        val notification = createNotification(title, progress)
-        notificationManager.notify(NOTIFICATION_ID, notification)
-    }
-
-    private fun showCompletionNotification(title: String, outputPath: String) {
-        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Download Complete")
-            .setContentText(title)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
-
-        // Use different notification ID to show alongside ongoing notification
-        notificationManager.notify(NOTIFICATION_ID + 1, notification)
-
-        Log.d(TAG, "Completion notification shown for: $title")
-    }
-
-    private fun showErrorNotification(title: String, error: String) {
-        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Download Failed")
-            .setContentText("$title: $error")
-            .setSmallIcon(android.R.drawable.stat_notify_error)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
-
-        notificationManager.notify(NOTIFICATION_ID + 2, notification)
-
-        Log.e(TAG, "Error notification shown for: $title - $error")
-    }
-
 }

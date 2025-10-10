@@ -45,14 +45,14 @@
 //! - Supports HTTP range requests for resume
 //! - Provides Stream interface for reading while downloading
 //!
-//! ### DownloadManager (manager.rs)
-//! High-level download orchestration that:
-//! - Requests download license from Audible API
-//! - Resolves content URLs and metadata
-//! - Creates NetworkFileStream instances
-//! - Tracks download progress
-//! - Handles cancellation
-//! - Reports progress via callbacks
+//! ### PersistentDownloadManager (persistent_manager.rs)
+//! High-level download orchestration with persistent queue that:
+//! - Persists download state to SQLite database
+//! - Supports pause/resume with byte-range resumption
+//! - Handles concurrent downloads with semaphore control
+//! - Provides real-time progress tracking
+//! - Automatically recovers from app restarts
+//! - Supports cancellation with proper task cleanup
 //!
 //! ## Download Flow
 //!
@@ -88,12 +88,10 @@
 //!    - Close file handles
 //!    - Report 100% complete
 
-pub mod manager;
 pub mod stream;
 pub mod progress;
 pub mod persistent_manager;
 
 // Re-export commonly used types
-pub use manager::DownloadManager;
 pub use progress::DownloadProgress;
 pub use persistent_manager::{PersistentDownloadManager, DownloadTask, TaskStatus};

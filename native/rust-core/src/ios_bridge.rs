@@ -685,7 +685,11 @@ pub extern "C" fn rust_search_books(
 // DOWNLOAD/DECRYPT FUNCTIONS
 // ============================================================================
 
-/// Download audiobook file
+/// Download audiobook file (PLACEHOLDER - Not implemented for iOS yet)
+///
+/// Note: iOS download functionality should use PersistentDownloadManager
+/// via the same pattern as Android (JNI bridge functions).
+/// This placeholder is kept for API compatibility.
 ///
 /// # Arguments
 /// * `asin` - Amazon Standard Identification Number
@@ -697,11 +701,8 @@ pub extern "C" fn rust_search_books(
 /// JSON string with format:
 /// ```json
 /// {
-///   "success": true,
-///   "data": {
-///     "bytes_downloaded": 123456789,
-///     "output_path": "/path/to/book.aax"
-///   }
+///   "success": false,
+///   "error": "Not implemented for iOS yet. Use PersistentDownloadManager."
 /// }
 /// ```
 ///
@@ -709,72 +710,12 @@ pub extern "C" fn rust_search_books(
 /// Caller must free the returned string with `rust_free_string()`
 #[no_mangle]
 pub extern "C" fn rust_download_book(
-    asin: *const c_char,
-    access_token: *const c_char,
-    locale_code: *const c_char,
-    output_path: *const c_char,
+    _asin: *const c_char,
+    _access_token: *const c_char,
+    _locale_code: *const c_char,
+    _output_path: *const c_char,
 ) -> *mut c_char {
-    let response = catch_panic(|| {
-        let asin = c_str_to_string(asin)?;
-        let access_token = c_str_to_string(access_token)?;
-        let locale_code = c_str_to_string(locale_code)?;
-        let output_path = c_str_to_string(output_path)?;
-
-        let locale = crate::api::auth::Locale::from_country_code(&locale_code)
-            .ok_or_else(|| crate::LibationError::InvalidInput(format!("Invalid locale: {}", locale_code)))?;
-
-        let result = RUNTIME.block_on(async {
-            // Create a minimal account for the client
-            // Note: This is a simplified approach - in production you'd want the full Account object
-            let account = crate::api::auth::Account {
-                account_id: asin.clone(), // Use ASIN as temporary account ID
-                account_name: "Temporary".to_string(),
-                library_scan: false,
-                decrypt_key: String::new(),
-                identity: Some(crate::api::auth::Identity {
-                    access_token: crate::api::auth::AccessToken {
-                        token: access_token.clone(),
-                        expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-                    },
-                    refresh_token: String::new(),
-                    device_private_key: String::new(),
-                    adp_token: String::new(),
-                    cookies: HashMap::new(),
-                    device_serial_number: String::new(),
-                    device_type: String::new(),
-                    device_name: String::new(),
-                    amazon_account_id: String::new(),
-                    store_authentication_cookie: String::new(),
-                    locale: locale,
-                    customer_info: crate::api::auth::CustomerInfo {
-                        account_pool: String::new(),
-                        user_id: String::new(),
-                        home_region: String::new(),
-                        name: String::new(),
-                        given_name: String::new(),
-                    },
-                }),
-            };
-
-            let client = crate::api::client::AudibleClient::new(account)?;
-            let config = crate::download::manager::DownloadConfig::default();
-            let download_manager = crate::download::DownloadManager::new(client, config);
-
-            // Note: This is a placeholder - actual implementation would need license data
-            // and content URL from the API
-            let bytes_downloaded = 0u64; // TODO: Implement actual download
-
-            let response = serde_json::json!({
-                "bytes_downloaded": bytes_downloaded,
-                "output_path": output_path,
-            });
-
-            Ok::<_, crate::LibationError>(response)
-        })?;
-
-        Ok(success_response(result))
-    });
-
+    let response = error_response("Not implemented for iOS yet. Use PersistentDownloadManager via bridge functions.");
     string_to_c_str(response)
 }
 

@@ -55,10 +55,38 @@ use jni::JNIEnv;
 use serde::{Deserialize, Serialize};
 use std::panic::{self, AssertUnwindSafe};
 
+use std::sync::Mutex;
+use std::collections::HashMap;
+
 // Lazy static tokio runtime for async operations
 lazy_static::lazy_static! {
     static ref RUNTIME: tokio::runtime::Runtime =
         tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+
+    // Global download manager cache (db_path -> manager instance)
+    static ref DOWNLOAD_MANAGERS: Mutex<HashMap<String, std::sync::Arc<crate::download::PersistentDownloadManager>>> =
+        Mutex::new(HashMap::new());
+}
+
+/// Get or create a download manager for the given database path
+async fn get_or_create_manager(db_path: &str) -> crate::Result<std::sync::Arc<crate::download::PersistentDownloadManager>> {
+    let mut managers = DOWNLOAD_MANAGERS.lock().unwrap();
+
+    if let Some(manager) = managers.get(db_path) {
+        return Ok(std::sync::Arc::clone(manager));
+    }
+
+    // Create new manager
+    let db = crate::storage::Database::new(db_path).await?;
+    let manager = crate::download::PersistentDownloadManager::new(
+        std::sync::Arc::new(db.pool().clone()),
+        3, // max concurrent downloads
+    ).await?;
+
+    let manager_arc = std::sync::Arc::new(manager);
+    managers.insert(db_path.to_string(), std::sync::Arc::clone(&manager_arc));
+
+    Ok(manager_arc)
 }
 
 // ============================================================================
@@ -1566,11 +1594,7 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeEnqueu
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             let task_id = RUNTIME.block_on(async {
-                let db = crate::storage::Database::new(&params.db_path).await?;
-                let manager = crate::download::PersistentDownloadManager::new(
-                    std::sync::Arc::new(db.pool().clone()),
-                    3, // max concurrent downloads
-                ).await?;
+                let manager = get_or_create_manager(&params.db_path).await?;
 
                 manager.enqueue_download(
                     params.asin,
@@ -1645,12 +1669,7 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetDow
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             let task = RUNTIME.block_on(async {
-                let db = crate::storage::Database::new(&params.db_path).await?;
-                let manager = crate::download::PersistentDownloadManager::new(
-                    std::sync::Arc::new(db.pool().clone()),
-                    3,
-                ).await?;
-
+                let manager = get_or_create_manager(&params.db_path).await?;
                 manager.get_task(&params.task_id).await
             })?;
 
@@ -1706,11 +1725,7 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeListDo
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             let tasks = RUNTIME.block_on(async {
-                let db = crate::storage::Database::new(&params.db_path).await?;
-                let manager = crate::download::PersistentDownloadManager::new(
-                    std::sync::Arc::new(db.pool().clone()),
-                    3,
-                ).await?;
+                let manager = get_or_create_manager(&params.db_path).await?;
 
                 let filter = if let Some(ref f) = params.filter {
                     Some(crate::download::TaskStatus::from_str(f)?)
@@ -1767,12 +1782,7 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativePauseD
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             RUNTIME.block_on(async {
-                let db = crate::storage::Database::new(&params.db_path).await?;
-                let manager = crate::download::PersistentDownloadManager::new(
-                    std::sync::Arc::new(db.pool().clone()),
-                    3,
-                ).await?;
-
+                let manager = get_or_create_manager(&params.db_path).await?;
                 manager.pause_download(&params.task_id).await
             })?;
 
@@ -1818,12 +1828,7 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeResume
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             RUNTIME.block_on(async {
-                let db = crate::storage::Database::new(&params.db_path).await?;
-                let manager = crate::download::PersistentDownloadManager::new(
-                    std::sync::Arc::new(db.pool().clone()),
-                    3,
-                ).await?;
-
+                let manager = get_or_create_manager(&params.db_path).await?;
                 manager.resume_download(&params.task_id).await
             })?;
 
@@ -1869,12 +1874,7 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeCancel
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             RUNTIME.block_on(async {
-                let db = crate::storage::Database::new(&params.db_path).await?;
-                let manager = crate::download::PersistentDownloadManager::new(
-                    std::sync::Arc::new(db.pool().clone()),
-                    3,
-                ).await?;
-
+                let manager = get_or_create_manager(&params.db_path).await?;
                 manager.cancel_download(&params.task_id).await
             })?;
 

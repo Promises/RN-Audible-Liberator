@@ -36,6 +36,7 @@ class DownloadOrchestrator(
         private const val TAG = "DownloadOrchestrator"
         private const val PREFS_NAME = "download_orchestrator_prefs"
         private const val PREF_WIFI_ONLY = "wifi_only_mode"
+        private const val PREF_MANUALLY_PAUSED = "manually_paused_asins"
     }
 
     private val conversionManager = ConversionManager(context)
@@ -51,7 +52,7 @@ class DownloadOrchestrator(
     private val monitoringJobs = mutableMapOf<String, Job>()
 
     // Callbacks
-    private var progressCallback: ((String, String, Double) -> Unit)? = null // (asin, status, percentage)
+    private var progressCallback: ((String, String, Double, Long, Long) -> Unit)? = null // (asin, stage, percentage, bytesDownloaded, totalBytes)
     private var completionCallback: ((String, String, String) -> Unit)? = null // (asin, title, outputPath)
     private var errorCallback: ((String, String, String) -> Unit)? = null // (asin, title, error)
 
@@ -165,7 +166,8 @@ class DownloadOrchestrator(
                 decryptedCachePath = decryptedCachePath,
                 outputDirectory = outputDirectory,
                 aaxcKey = aaxcKey,
-                aaxcIv = aaxcIv
+                aaxcIv = aaxcIv,
+                totalBytes = totalBytes
             )
 
             taskId
@@ -187,10 +189,14 @@ class DownloadOrchestrator(
         decryptedCachePath: String,
         outputDirectory: String,
         aaxcKey: String,
-        aaxcIv: String
+        aaxcIv: String,
+        totalBytes: Long
     ) {
         // Cancel any existing monitoring for this ASIN
         monitoringJobs[asin]?.cancel()
+
+        // Send initial progress notification (0%)
+        progressCallback?.invoke(asin, "downloading", 0.0, 0, totalBytes)
 
         val job = scope.launch {
             try {
@@ -210,15 +216,21 @@ class DownloadOrchestrator(
                         val taskData = parsedStatus["data"] as? Map<*, *>
                         val status = taskData?.get("status") as? String
                         val bytesDownloaded = (taskData?.get("bytes_downloaded") as? Number)?.toLong() ?: 0L
-                        val totalBytes = (taskData?.get("total_bytes") as? Number)?.toLong() ?: 1L
-                        val percentage = (bytesDownloaded.toDouble() / totalBytes) * 100.0
+                        val taskTotalBytes = (taskData?.get("total_bytes") as? Number)?.toLong() ?: totalBytes
+                        val percentage = (bytesDownloaded.toDouble() / taskTotalBytes) * 100.0
 
                         Log.d(TAG, "Download $asin: $status ($percentage%)")
 
-                        // Notify progress
-                        progressCallback?.invoke(asin, status ?: "unknown", percentage)
-
                         when (status) {
+                            "downloading" -> {
+                                // Send progress notification only while downloading
+                                progressCallback?.invoke(asin, "downloading", percentage, bytesDownloaded, taskTotalBytes)
+                            }
+                            "paused" -> {
+                                Log.d(TAG, "Download paused for $asin - will resume monitoring when unpaused")
+                                // Continue monitoring but don't send progress notifications
+                                // This allows detection of resume events
+                            }
                             "completed" -> {
                                 Log.d(TAG, "Download completed! Triggering conversion for $asin")
 
@@ -272,6 +284,9 @@ class DownloadOrchestrator(
         try {
             Log.d(TAG, "Starting conversion for $asin...")
 
+            // Notify decrypting stage
+            progressCallback?.invoke(asin, "decrypting", 0.0, 0, 0)
+
             // Decrypt using FFmpeg-Kit
             val command = buildList {
                 add("-y")
@@ -294,6 +309,9 @@ class DownloadOrchestrator(
             }
 
             Log.d(TAG, "Conversion complete for $asin")
+
+            // Notify copying stage
+            progressCallback?.invoke(asin, "copying", 0.0, 0, 0)
 
             // Copy to final destination
             copyToFinalDestination(asin, title, decryptedCachePath, outputDirectory)
@@ -356,6 +374,10 @@ class DownloadOrchestrator(
         }
 
         Log.d(TAG, "Complete! Final path: $finalPath")
+
+        // Clear manual pause marker on completion
+        clearManuallyPaused(asin)
+
         completionCallback?.invoke(asin, title, finalPath)
     }
 
@@ -408,7 +430,8 @@ class DownloadOrchestrator(
      */
     private fun setupConversionCallbacks() {
         conversionManager.setProgressListener { task ->
-            progressCallback?.invoke(task.asin, "converting", task.progress.percentage)
+            // Pass 0 for bytes since we don't track conversion progress in bytes
+            progressCallback?.invoke(task.asin, "converting", task.progress.percentage, 0, 0)
         }
 
         conversionManager.setCompletionListener { task ->
@@ -453,7 +476,7 @@ class DownloadOrchestrator(
     }
 
     /**
-     * Resume all paused downloads
+     * Resume all paused downloads (except manually paused ones)
      */
     private suspend fun resumeAllPausedDownloads() = withContext(Dispatchers.IO) {
         try {
@@ -470,8 +493,18 @@ class DownloadOrchestrator(
                 @Suppress("UNCHECKED_CAST")
                 val tasks = data?.get("tasks") as? List<Map<*, *>> ?: emptyList()
 
+                // Get list of manually paused downloads
+                val manuallyPaused = getManuallyPausedAsins()
+
                 tasks.forEach { task ->
+                    val asin = task["asin"] as? String ?: return@forEach
                     val taskId = task["task_id"] as? String ?: return@forEach
+
+                    // Skip manually paused downloads
+                    if (manuallyPaused.contains(asin)) {
+                        Log.d(TAG, "Skipping auto-resume for manually paused download: $asin")
+                        return@forEach
+                    }
 
                     val resumeParams = JSONObject().apply {
                         put("db_path", dbPath)
@@ -485,6 +518,34 @@ class DownloadOrchestrator(
         } catch (e: Exception) {
             Log.e(TAG, "Error resuming downloads", e)
         }
+    }
+
+    /**
+     * Mark an ASIN as manually paused
+     */
+    private fun markAsManuallyPaused(asin: String) {
+        val manuallyPaused = getManuallyPausedAsins().toMutableSet()
+        manuallyPaused.add(asin)
+        prefs.edit().putStringSet(PREF_MANUALLY_PAUSED, manuallyPaused).apply()
+        Log.d(TAG, "Marked $asin as manually paused")
+    }
+
+    /**
+     * Remove manual pause marker (when user manually resumes or download completes)
+     */
+    private fun clearManuallyPaused(asin: String) {
+        val manuallyPaused = getManuallyPausedAsins().toMutableSet()
+        if (manuallyPaused.remove(asin)) {
+            prefs.edit().putStringSet(PREF_MANUALLY_PAUSED, manuallyPaused).apply()
+            Log.d(TAG, "Cleared manual pause marker for $asin")
+        }
+    }
+
+    /**
+     * Get set of manually paused ASINs
+     */
+    private fun getManuallyPausedAsins(): Set<String> {
+        return prefs.getStringSet(PREF_MANUALLY_PAUSED, emptySet()) ?: emptySet()
     }
 
     /**
@@ -531,8 +592,10 @@ class DownloadOrchestrator(
 
     /**
      * Set progress callback
+     * Parameters: (asin, stage, percentage, bytesDownloaded, totalBytes)
+     * Stage can be: "downloading", "decrypting", "copying"
      */
-    fun setProgressCallback(callback: (String, String, Double) -> Unit) {
+    fun setProgressCallback(callback: (String, String, Double, Long, Long) -> Unit) {
         this.progressCallback = callback
     }
 
@@ -548,6 +611,60 @@ class DownloadOrchestrator(
      */
     fun setErrorCallback(callback: (String, String, String) -> Unit) {
         this.errorCallback = callback
+    }
+
+    /**
+     * Manually pause a download (will not auto-resume on WiFi)
+     */
+    suspend fun manuallyPauseDownload(asin: String, taskId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val pauseParams = JSONObject().apply {
+                put("db_path", dbPath)
+                put("task_id", taskId)
+            }
+
+            val result = ExpoRustBridgeModule.nativePauseDownload(pauseParams.toString())
+            val parsed = parseJsonResponse(result)
+
+            if (parsed["success"] == true) {
+                markAsManuallyPaused(asin)
+                Log.d(TAG, "Manually paused download: $asin")
+                true
+            } else {
+                Log.e(TAG, "Failed to pause: ${parsed["error"]}")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error pausing download", e)
+            false
+        }
+    }
+
+    /**
+     * Manually resume a download (clears manual pause marker)
+     */
+    suspend fun manuallyResumeDownload(asin: String, taskId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val resumeParams = JSONObject().apply {
+                put("db_path", dbPath)
+                put("task_id", taskId)
+            }
+
+            val result = ExpoRustBridgeModule.nativeResumeDownload(resumeParams.toString())
+            val parsed = parseJsonResponse(result)
+
+            if (parsed["success"] == true) {
+                clearManuallyPaused(asin)
+                Log.d(TAG, "Manually resumed download: $asin")
+                true
+            } else {
+                Log.e(TAG, "Failed to resume: ${parsed["error"]}")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resuming download", e)
+            false
+        }
     }
 
     /**

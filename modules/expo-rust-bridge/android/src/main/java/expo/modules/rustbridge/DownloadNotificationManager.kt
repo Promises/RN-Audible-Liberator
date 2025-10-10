@@ -1,0 +1,334 @@
+package expo.modules.rustbridge
+
+import android.app.*
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import android.util.Log
+
+/**
+ * Rich notification manager for audiobook downloads
+ *
+ * Features:
+ * - Progress bar with percentage
+ * - Book title and author
+ * - Current stage (Downloading, Decrypting, Copying)
+ * - Action buttons (Pause/Cancel)
+ * - Large text style for detailed info
+ * - Different notifications for different stages
+ */
+class DownloadNotificationManager(private val context: Context) {
+    companion object {
+        private const val TAG = "DownloadNotification"
+        private const val CHANNEL_ID = "audiobook_downloads"
+        private const val CHANNEL_NAME = "Audiobook Downloads"
+        private const val NOTIFICATION_ID = 1001
+
+        // Action request codes
+        private const val ACTION_PAUSE = "expo.modules.rustbridge.PAUSE_DOWNLOAD"
+        private const val ACTION_RESUME = "expo.modules.rustbridge.RESUME_DOWNLOAD"
+        private const val ACTION_CANCEL = "expo.modules.rustbridge.CANCEL_DOWNLOAD"
+
+        // Notification types
+        const val STAGE_DOWNLOADING = "downloading"
+        const val STAGE_DECRYPTING = "decrypting"
+        const val STAGE_COPYING = "copying"
+        const val STAGE_COMPLETED = "completed"
+        const val STAGE_FAILED = "failed"
+    }
+
+    private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    init {
+        createNotificationChannel()
+    }
+
+    /**
+     * Download progress state
+     */
+    data class DownloadProgress(
+        val asin: String,
+        val title: String,
+        val author: String? = null,
+        val stage: String,
+        val percentage: Int,
+        val bytesDownloaded: Long = 0,
+        val totalBytes: Long = 0,
+        val speed: String? = null, // e.g., "2.5 MB/s"
+        val eta: String? = null // e.g., "5 minutes remaining"
+    )
+
+    /**
+     * Create notification channel (Android O+)
+     */
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Shows progress for audiobook downloads, decryption, and conversion"
+                setShowBadge(false)
+                enableLights(false)
+                enableVibration(false)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    /**
+     * Show download progress notification
+     */
+    fun showProgress(progress: DownloadProgress) {
+        Log.d(TAG, "Showing progress notification: ${progress.title} ${progress.percentage}%")
+        val notification = buildProgressNotification(progress)
+        notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Build progress notification
+     */
+    private fun buildProgressNotification(progress: DownloadProgress): Notification {
+        val stageName = when (progress.stage) {
+            STAGE_DOWNLOADING -> "Downloading"
+            STAGE_DECRYPTING -> "Decrypting"
+            STAGE_COPYING -> "Saving to library"
+            else -> "Processing"
+        }
+
+        val title = "$stageName: ${progress.title}"
+
+        // Build detailed content text
+        val contentText = buildString {
+            append("${progress.percentage}%")
+
+            if (progress.totalBytes > 0) {
+                val mbDownloaded = progress.bytesDownloaded / (1024.0 * 1024.0)
+                val mbTotal = progress.totalBytes / (1024.0 * 1024.0)
+                append(" • %.1f / %.1f MB".format(mbDownloaded, mbTotal))
+            }
+
+            progress.speed?.let { append(" • $it") }
+        }
+
+        // Build big text with more details
+        val bigText = buildString {
+            append("$stageName ${progress.title}")
+            progress.author?.let { append("\nby $it") }
+            append("\n\n${progress.percentage}% complete")
+
+            if (progress.totalBytes > 0) {
+                val mbDownloaded = progress.bytesDownloaded / (1024.0 * 1024.0)
+                val mbTotal = progress.totalBytes / (1024.0 * 1024.0)
+                append("\n%.1f MB of %.1f MB".format(mbDownloaded, mbTotal))
+            }
+
+            progress.speed?.let { append("\nSpeed: $it") }
+            progress.eta?.let { append("\n$it") }
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setProgress(100, progress.percentage, false)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            .setOnlyAlertOnce(true) // Don't make sound/vibration on updates
+
+        // Add action buttons only during download stage
+        if (progress.stage == STAGE_DOWNLOADING) {
+            // Pause button
+            val pauseIntent = Intent(ACTION_PAUSE).apply {
+                setPackage(context.packageName)
+                putExtra("asin", progress.asin)
+            }
+            val pausePendingIntent = PendingIntent.getBroadcast(
+                context,
+                0,
+                pauseIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(
+                android.R.drawable.ic_media_pause,
+                "Pause",
+                pausePendingIntent
+            )
+
+            // Cancel button
+            val cancelIntent = Intent(ACTION_CANCEL).apply {
+                setPackage(context.packageName)
+                putExtra("asin", progress.asin)
+            }
+            val cancelPendingIntent = PendingIntent.getBroadcast(
+                context,
+                1,
+                cancelIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Cancel",
+                cancelPendingIntent
+            )
+        }
+
+        return builder.build()
+    }
+
+    /**
+     * Show completion notification
+     */
+    fun showCompletion(title: String, author: String? = null, outputPath: String) {
+        val contentText = buildString {
+            append("Ready to listen")
+            author?.let { append(" • by $it") }
+        }
+
+        val bigText = buildString {
+            append("$title is ready to listen!")
+            author?.let { append("\n\nby $it") }
+            append("\n\nSaved to your library")
+        }
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle("Download Complete")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            .build()
+
+        // Use different ID to show alongside ongoing notification
+        notificationManager.notify(NOTIFICATION_ID + 1, notification)
+
+        // Remove progress notification
+        notificationManager.cancel(NOTIFICATION_ID)
+
+        Log.d(TAG, "Completion notification shown: $title")
+    }
+
+    /**
+     * Show error notification
+     */
+    fun showError(title: String, author: String? = null, error: String) {
+        val contentText = buildString {
+            append("Failed: $error")
+        }
+
+        val bigText = buildString {
+            append("$title")
+            author?.let { append("\nby $it") }
+            append("\n\nFailed: $error")
+            append("\n\nTap to retry")
+        }
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle("Download Failed")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID + 2, notification)
+
+        // Remove progress notification
+        notificationManager.cancel(NOTIFICATION_ID)
+
+        Log.e(TAG, "Error notification shown: $title - $error")
+    }
+
+    /**
+     * Show paused notification
+     */
+    fun showPaused(asin: String, title: String, author: String? = null, percentage: Int) {
+        Log.d(TAG, "Showing paused notification: $title at $percentage%")
+
+        val contentText = buildString {
+            append("Paused at $percentage%")
+            author?.let { append(" • by $it") }
+        }
+
+        val bigText = buildString {
+            append("$title")
+            author?.let { append("\nby $it") }
+            append("\n\nPaused at $percentage%")
+            append("\nTap Resume to continue or Cancel to remove")
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle("Download Paused")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.ic_media_pause)
+            .setProgress(100, percentage, false)
+            .setAutoCancel(false)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+
+        // Resume button
+        val resumeIntent = Intent(ACTION_RESUME).apply {
+            setPackage(context.packageName)
+            putExtra("asin", asin)
+        }
+        val resumePendingIntent = PendingIntent.getBroadcast(
+            context,
+            2,
+            resumeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.addAction(
+            android.R.drawable.ic_media_play,
+            "Resume",
+            resumePendingIntent
+        )
+
+        // Cancel button
+        val cancelIntent = Intent(ACTION_CANCEL).apply {
+            setPackage(context.packageName)
+            putExtra("asin", asin)
+        }
+        val cancelPendingIntent = PendingIntent.getBroadcast(
+            context,
+            3,
+            cancelIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.addAction(
+            android.R.drawable.ic_menu_close_clear_cancel,
+            "Cancel",
+            cancelPendingIntent
+        )
+
+        notificationManager.notify(NOTIFICATION_ID, builder.build())
+        Log.d(TAG, "Paused notification shown with Resume and Cancel buttons")
+    }
+
+    /**
+     * Cancel all notifications
+     */
+    fun cancelAll() {
+        notificationManager.cancel(NOTIFICATION_ID)
+        notificationManager.cancel(NOTIFICATION_ID + 1)
+        notificationManager.cancel(NOTIFICATION_ID + 2)
+    }
+
+    /**
+     * Get initial notification for starting foreground service
+     */
+    fun getInitialNotification(): Notification {
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle("Audiobook Download")
+            .setContentText("Initializing...")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setProgress(0, 0, true)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+}

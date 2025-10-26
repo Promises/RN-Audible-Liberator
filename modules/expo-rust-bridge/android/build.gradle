@@ -39,7 +39,12 @@ dependencies {
   implementation 'androidx.documentfile:documentfile:1.0.1'
 
   // FFmpeg-Kit with 16KB page size support (locally built .aar)
-  implementation files('../../../android/app/libs/ffmpeg-kit.aar')
+  // Use compileOnly since AAR modules can't bundle local AAR dependencies
+  // The app module will provide the actual dependency at runtime
+  compileOnly files('../../../android/app/libs/ffmpeg-kit.aar')
   // Required dependency for FFmpeg-Kit
   implementation 'com.arthenica:smart-exception-java:0.1.1'
+
+  // WorkManager for periodic background tasks
+  implementation 'androidx.work:work-runtime-ktx:2.9.0'
 }

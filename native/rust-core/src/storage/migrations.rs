@@ -45,6 +45,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     // Run all migrations in order
     run_migration(pool, 1, "initial_schema", create_initial_schema(pool)).await?;
     run_migration(pool, 2, "download_tasks", create_download_tasks_table(pool)).await?;
+    run_migration(pool, 3, "accounts", create_accounts_table(pool)).await?;
 
     Ok(())
 }
@@ -449,6 +450,59 @@ CREATE TABLE IF NOT EXISTS DownloadTasks (
 CREATE INDEX IF NOT EXISTS idx_download_tasks_status ON DownloadTasks(status);
 CREATE INDEX IF NOT EXISTS idx_download_tasks_asin ON DownloadTasks(asin);
 CREATE INDEX IF NOT EXISTS idx_download_tasks_created_at ON DownloadTasks(created_at);
+        "#,
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Create accounts table for storing user authentication data
+///
+/// This table stores account credentials, tokens, and device information.
+/// Single source of truth accessible from both Rust and native workers.
+async fn create_accounts_table(pool: &SqlitePool) -> Result<()> {
+    pool.execute(
+        r#"
+-- ============================================================================
+-- ACCOUNTS TABLE
+-- ============================================================================
+
+-- Accounts table: User authentication and identity
+CREATE TABLE IF NOT EXISTS Accounts (
+    account_id TEXT PRIMARY KEY,  -- Unique account identifier (email or username)
+    account_name TEXT NOT NULL,
+    locale_code TEXT NOT NULL,    -- Country code (e.g., "us", "uk", "de")
+
+    -- Identity JSON (contains all auth data)
+    -- Stores access_token, refresh_token, device info, cookies, etc.
+    identity_json TEXT NOT NULL,
+
+    -- Token expiry tracking
+    token_expires_at TEXT,        -- ISO 8601 timestamp
+
+    -- Account settings
+    library_scan INTEGER NOT NULL DEFAULT 1,
+    decrypt_key TEXT,             -- Activation bytes (8 hex chars)
+
+    -- Timestamps
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_token_refresh TEXT,      -- Last successful token refresh
+    last_library_sync TEXT        -- Last successful library sync
+);
+
+-- Index for quick lookup
+CREATE INDEX IF NOT EXISTS idx_accounts_locale ON Accounts(locale_code);
+CREATE INDEX IF NOT EXISTS idx_accounts_updated ON Accounts(updated_at);
+
+-- Trigger to update updated_at timestamp
+CREATE TRIGGER IF NOT EXISTS update_accounts_timestamp
+AFTER UPDATE ON Accounts
+FOR EACH ROW
+BEGIN
+    UPDATE Accounts SET updated_at = CURRENT_TIMESTAMP WHERE account_id = NEW.account_id;
+END;
         "#,
     )
     .await?;

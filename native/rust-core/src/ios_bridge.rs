@@ -377,6 +377,74 @@ pub extern "C" fn rust_refresh_access_token(
     string_to_c_str(response)
 }
 
+/// Ensure access token is valid, refreshing if expired or expiring soon
+///
+/// This is a just-in-time token refresh function that checks if the access token
+/// is expired or expiring within the threshold, and automatically refreshes it if needed.
+///
+/// # Arguments
+/// * `db_path` - Path to SQLite database file
+/// * `account_json` - Account JSON string
+/// * `refresh_threshold_minutes` - Minutes before expiry to trigger refresh (default: 30)
+///
+/// # Returns
+/// JSON response with:
+/// - `account_json`: Updated account JSON (may have new tokens)
+/// - `was_refreshed`: Boolean indicating if token was refreshed
+/// - `new_expiry`: New token expiry timestamp
+/// - `original_expiry`: Original token expiry timestamp
+///
+/// # Safety
+/// All string pointers must be valid null-terminated UTF-8 strings.
+/// Caller must free the returned string with `rust_free_string()`.
+#[no_mangle]
+pub extern "C" fn rust_ensure_valid_token(
+    db_path: *const c_char,
+    account_json: *const c_char,
+    refresh_threshold_minutes: i64,
+) -> *mut c_char {
+    let response = catch_panic(|| {
+        let db_path_str = c_str_to_string(db_path)?;
+        let account_json_str = c_str_to_string(account_json)?;
+
+        let result = RUNTIME.block_on(async {
+            let db = crate::storage::Database::new(&db_path_str).await?;
+
+            // Parse original account to get expiry before refresh
+            let original_account: crate::api::auth::Account = serde_json::from_str(&account_json_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
+            let original_expiry = original_account.identity.as_ref()
+                .map(|i| i.access_token.expires_at);
+
+            // Ensure token is valid
+            let updated_account_json = crate::api::auth::ensure_valid_token(
+                db.pool(),
+                &account_json_str,
+                refresh_threshold_minutes,
+            ).await?;
+
+            // Parse updated account to get new expiry
+            let updated_account: crate::api::auth::Account = serde_json::from_str(&updated_account_json)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
+            let new_expiry = updated_account.identity.as_ref()
+                .map(|i| i.access_token.expires_at);
+
+            let was_refreshed = original_expiry != new_expiry;
+
+            Ok(serde_json::json!({
+                "account_json": updated_account_json,
+                "was_refreshed": was_refreshed,
+                "new_expiry": new_expiry.map(|e| e.to_rfc3339()),
+                "original_expiry": original_expiry.map(|e| e.to_rfc3339()),
+            }))
+        })?;
+
+        Ok(success_response(result))
+    });
+
+    string_to_c_str(response)
+}
+
 /// Get activation bytes for DRM decryption
 ///
 /// # Arguments

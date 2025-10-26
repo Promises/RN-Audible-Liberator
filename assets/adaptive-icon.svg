@@ -1,75 +1,22 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   width="1024"
-   height="1024"
-   viewBox="0 0 1024 1024"
-   version="1.1"
-   id="svg7"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Mask: white shapes = opaque, black shapes = transparent -->
-    <mask id="arrowMask">
-      <!-- Start with white background (everything visible) -->
+    <mask id="mask0">
+      <!-- Everything visible starts as white (opaque) -->
       <rect width="1024" height="1024" fill="white"/>
-      <!-- Black shapes cut through the white arrow -->
-      <g transform="translate(512, 699) scale(1.2) translate(-512, -699)">
-        <g transform="matrix(18,0,0,18,310.87865,443.81556)">
-          <!-- Largest outer arc - black cuts through -->
-          <path
-             d="M 5.25,9.012 C 9.367,5.766 16.579775,7.0229308 18.815813,11.204734 l -0.0017,-0.01212 L 19.83,10.053 C 18.105585,7.4100038 15.162794,5.8169162 12.007,5.818 8.851099,5.8186179 5.9084635,7.4112136 4.182,10.053 4.486,9.711 4.868,9.302 5.25,9.012 Z"
-             fill="black" />
-          <!-- Middle arc - black cuts through -->
-          <path
-             d="m 17.175862,13.167629 0.918984,-1.08383 C 16.589272,9.602974 14.25,8.655 12.007,8.655 9.75,8.655 7.771,9.79 6.636,11.545 6.729,11.452 6.782,11.399 6.874,11.334 9.685,8.998 15.443384,9.8800552 17.175862,13.167629 Z"
-             fill="black" />
-          <!-- Smallest inner arc - black cuts through -->
-          <path
-             d="m 9.051,13.063 c 0.5159504,-0.378888 1.438322,-0.405837 2.078444,-0.403647 1.083,0 3.057035,-0.02785 4.608809,2.105086 l 0.764208,-0.966108 c -0.715813,-1.36198 -2.920195,-2.095028 -4.148195,-2.095028 -1.226,0 -2.657266,0.461697 -3.303266,1.359697 z"
-             fill="black" />
-        </g>
-        <!-- Inner chevron - black cuts through -->
-        <path
-           d="M 272 559 L 512 839 L 752 559"
-           fill="none"
-           stroke="black"
-           stroke-width="30"
-           stroke-linejoin="round"
-           stroke-linecap="round" />
-      </g>
+      <!-- Blue paths become transparent holes -->
+      <path d="M435.233 492.463C488.589 450.395 581.833 466.257 610.812 520.453L623.754 505.359C601.405 471.106 563.703 451.054 522.804 451.069C481.903 451.077 443.767 471.717 421.392 505.954C425.331 501.522 430.282 496.221 435.233 492.463Z" fill="black"/>
+      <path d="M589.41 545.422L601.328 531.512C581.816 499.36 551.873 487.836 522.803 487.836C493.553 487.836 467.905 502.546 453.195 525.29C454.401 524.085 455.087 523.398 456.28 522.556C492.71 492.281 566.957 502.815 589.41 545.422Z" fill="black"/>
+      <path d="M484.494 544.964C491.18 540.053 503.134 539.704 511.43 539.732C525.466 539.732 550.912 539.228 571.023 566.871L581.332 554.852C572.055 537.2 543.219 527.342 527.304 527.342C511.415 527.342 492.866 533.326 484.494 544.964Z" fill="black"/>
+      <path d="M339.2 458.6L512 660.2L684.8 458.6" stroke="black" stroke-width="21.6" stroke-linecap="round" stroke-linejoin="round"/>
     </mask>
   </defs>
 
-  <!-- Scalable icon group - adjust scale here -->
-  <g id="iconGroup" transform="translate(512, 512) scale(0.6) translate(-512, -620)">
-    <!-- Download Arrow with mask applied -->
-    <g mask="url(#arrowMask)">
-      <!-- Arrow shaft (extends to top) -->
-      <g
-         id="arrowShaft"
-         transform="translate(512, 345) scale(2, 1.0)  translate(-512, -850)">
-        <rect
-           x="437"
-           y="-10"
-           width="150"
-           height="1000"
-           fill="#ECEFF4"
-           rx="10"
-           id="rect3" />
-      </g>
-      <!-- Arrow head (pointing down) with rounded corners -->
-      <g
-         transform="translate(512, 699) scale(1.2) translate(-512, -699)"
-         id="g7">
-        <path
-           d="M 512 874 L 212 524 Q 212 524, 232 524 L 792 524 Q 812 524, 812 524 Z"
-           fill="#ECEFF4"
-           stroke="#ECEFF4"
-           stroke-width="40"
-           stroke-linejoin="round"
-           stroke-linecap="round"
-           id="path3" />
-      </g>
-    </g>
+  <!-- Wrap main content in a group for centering + scaling -->
+  <g id="main-content" mask="url(#mask0)" transform="translate(512, 512) scale(1) translate(-512, -512)">
+    <path d="M590 -169H434C427.373 -169 422 -166.314 422 -163V425C422 428.314 427.373 431 434 431H590C596.627 431 602 428.314 602 425V-163C602 -166.314 596.627 -169 590 -169Z" fill="#ECEFF4"/>
+    <path d="M512 685.4L296 433.4C296 433.4 300.8 433.4 310.4 433.4H713.6C723.2 433.4 728 433.4 728 433.4L512 685.4Z" fill="#ECEFF4" stroke="#ECEFF4" stroke-width="28.8" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
+
+  <!-- Debug outline for 1024x1024 canvas -->
+<!--  <rect x="0.5" y="0.5" width="1023" height="1023" stroke="#FF0000" stroke-width="1" fill="none"/>-->
 </svg>

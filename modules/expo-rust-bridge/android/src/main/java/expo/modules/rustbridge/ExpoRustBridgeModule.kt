@@ -5,8 +5,10 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
 import org.json.JSONObject
 import org.json.JSONArray
+import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import expo.modules.rustbridge.workers.WorkerScheduler
 
 class ExpoRustBridgeModule : Module() {
   override fun definition() = ModuleDefinition {
@@ -710,6 +712,355 @@ class ExpoRustBridgeModule : Module() {
       parseJsonResponse(nativeCancelDownload(params.toString()))
     }
 
+    // ============================================================================
+    // BACKGROUND TASK MANAGER FUNCTIONS (New System)
+    // ============================================================================
+
+    /**
+     * Start the background task service.
+     * Must be called once when app starts.
+     */
+    Function("startBackgroundService") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        expo.modules.rustbridge.tasks.BackgroundTaskService.start(context)
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Stop the background task service.
+     * This will disable all automatic features (token refresh, library sync, auto-download).
+     */
+    Function("stopBackgroundService") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        expo.modules.rustbridge.tasks.BackgroundTaskService.stopService(context)
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Enqueue a download using the new background task system.
+     *
+     * @param asin Book ASIN
+     * @param title Book title
+     * @param author Optional book author
+     * @param accountJson Complete account JSON
+     * @param outputDirectory Output directory (SAF URI)
+     * @param quality Download quality
+     * @return Map with task_id
+     */
+    AsyncFunction("enqueueDownloadNew") { asin: String, title: String, author: String?, accountJson: String, outputDirectory: String, quality: String ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        expo.modules.rustbridge.tasks.BackgroundTaskService.enqueueDownload(
+          context = context,
+          asin = asin,
+          title = title,
+          author = author,
+          accountJson = accountJson,
+          outputDirectory = outputDirectory,
+          quality = quality
+        )
+        mapOf("success" to true, "data" to mapOf("message" to "Download enqueued"))
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Start library sync using the new background task system.
+     *
+     * @param fullSync Whether to do a full sync (default: false)
+     * @return Map with task_id
+     */
+    AsyncFunction("startLibrarySyncNew") { fullSync: Boolean ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        expo.modules.rustbridge.tasks.BackgroundTaskService.startLibrarySync(context, fullSync)
+        mapOf("success" to true, "data" to mapOf("message" to "Library sync started"))
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Enable automatic downloads after library sync.
+     */
+    Function("enableAutoDownload") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val manager = expo.modules.rustbridge.tasks.BackgroundTaskManager.getInstance(context)
+        manager.enableAutoDownload()
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Disable automatic downloads.
+     */
+    Function("disableAutoDownload") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val manager = expo.modules.rustbridge.tasks.BackgroundTaskManager.getInstance(context)
+        manager.disableAutoDownload()
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Save account to SQLite database (single source of truth).
+     *
+     * @param dbPath Database path
+     * @param accountJson Account JSON string
+     */
+    AsyncFunction("saveAccount") { dbPath: String, accountJson: String ->
+      try {
+        val params = JSONObject().apply {
+          put("db_path", dbPath)
+          put("account_json", accountJson)
+        }
+        val result = nativeSaveAccount(params.toString())
+        parseJsonResponse(result)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Get primary account from SQLite database.
+     *
+     * @param dbPath Database path
+     * @return Account JSON or null if no account exists
+     */
+    AsyncFunction("getPrimaryAccount") { dbPath: String ->
+      try {
+        val params = JSONObject().apply {
+          put("db_path", dbPath)
+        }
+        val result = nativeGetPrimaryAccount(params.toString())
+        parseJsonResponse(result)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Enable automatic library sync.
+     *
+     * @param intervalHours Sync interval in hours (default: 24)
+     */
+    Function("enableAutoSync") { intervalHours: Int? ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val prefs = context.getSharedPreferences("library_sync_prefs", Context.MODE_PRIVATE)
+
+        // Set interval if provided
+        if (intervalHours != null && intervalHours > 0) {
+          prefs.edit().putInt("sync_interval_hours", intervalHours).apply()
+        }
+
+        prefs.edit().putBoolean("auto_sync_enabled", true).apply()
+        mapOf("success" to true, "data" to mapOf("intervalHours" to (intervalHours ?: 24)))
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Disable automatic library sync.
+     */
+    Function("disableAutoSync") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val prefs = context.getSharedPreferences("library_sync_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("auto_sync_enabled", false).apply()
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Pause a task.
+     *
+     * @param taskId Task ID to pause
+     */
+    AsyncFunction("pauseTask") { taskId: String ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val manager = expo.modules.rustbridge.tasks.BackgroundTaskManager.getInstance(context)
+        val success = kotlinx.coroutines.runBlocking {
+          manager.pauseTask(taskId)
+        }
+        mapOf("success" to success)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Resume a paused task.
+     *
+     * @param taskId Task ID to resume
+     */
+    AsyncFunction("resumeTask") { taskId: String ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val manager = expo.modules.rustbridge.tasks.BackgroundTaskManager.getInstance(context)
+        val success = kotlinx.coroutines.runBlocking {
+          manager.resumeTask(taskId)
+        }
+        mapOf("success" to success)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Cancel a task.
+     *
+     * @param taskId Task ID to cancel
+     */
+    AsyncFunction("cancelTask") { taskId: String ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val manager = expo.modules.rustbridge.tasks.BackgroundTaskManager.getInstance(context)
+        val success = kotlinx.coroutines.runBlocking {
+          manager.cancelTask(taskId)
+        }
+        mapOf("success" to success)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Get all active tasks.
+     *
+     * @return List of active tasks with their details
+     */
+    Function("getActiveTasks") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val manager = expo.modules.rustbridge.tasks.BackgroundTaskManager.getInstance(context)
+        val tasks = manager.getActiveTasks()
+
+        val taskMaps = tasks.map { task ->
+          mapOf(
+            "id" to task.id,
+            "type" to task.type.name,
+            "priority" to task.priority.name,
+            "status" to task.status.name,
+            "metadata" to task.metadata,
+            "createdAt" to task.createdAt.time,
+            "startedAt" to task.startedAt?.time,
+            "completedAt" to task.completedAt?.time,
+            "error" to task.error
+          )
+        }
+
+        mapOf("success" to true, "data" to taskMaps)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Get a specific task by ID.
+     *
+     * @param taskId Task ID
+     * @return Task details or null if not found
+     */
+    Function("getTask") { taskId: String ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val manager = expo.modules.rustbridge.tasks.BackgroundTaskManager.getInstance(context)
+        val task = manager.getTask(taskId)
+
+        if (task != null) {
+          mapOf(
+            "success" to true,
+            "data" to mapOf(
+              "id" to task.id,
+              "type" to task.type.name,
+              "priority" to task.priority.name,
+              "status" to task.status.name,
+              "metadata" to task.metadata,
+              "createdAt" to task.createdAt.time,
+              "startedAt" to task.startedAt?.time,
+              "completedAt" to task.completedAt?.time,
+              "error" to task.error
+            )
+          )
+        } else {
+          mapOf("success" to false, "error" to "Task not found")
+        }
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Clear all tasks (for debugging/recovery from stuck states).
+     */
+    Function("clearAllTasks") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val manager = expo.modules.rustbridge.tasks.BackgroundTaskManager.getInstance(context)
+        manager.clearAllTasks()
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Check if the background service is currently running.
+     *
+     * @return Map with isRunning boolean
+     */
+    Function("isBackgroundServiceRunning") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+
+        val isRunning = activityManager.getRunningServices(Integer.MAX_VALUE).any { service ->
+          service.service.className == "expo.modules.rustbridge.tasks.BackgroundTaskService"
+        }
+
+        mapOf("success" to true, "data" to mapOf("isRunning" to isRunning))
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Clear all library data (for testing).
+     *
+     * @param dbPath Database path
+     */
+    AsyncFunction("clearLibrary") { dbPath: String ->
+      try {
+        val params = JSONObject().apply {
+          put("db_path", dbPath)
+        }
+        val result = nativeClearLibrary(params.toString())
+        parseJsonResponse(result)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
     /**
      * Test bridge connection and verify Rust library is loaded.
      *
@@ -734,6 +1085,117 @@ class ExpoRustBridgeModule : Module() {
         put("message", message)
       }
       parseJsonResponse(nativeLogFromRust(params.toString()))
+    }
+
+    // ============================================================================
+    // BACKGROUND WORKER SCHEDULING (WorkManager)
+    // ============================================================================
+
+    /**
+     * Schedule periodic token refresh worker (12 hour interval recommended).
+     *
+     * @param intervalHours How often to check for token expiry
+     * @return Map with success flag
+     */
+    Function("scheduleTokenRefresh") { intervalHours: Int ->
+      try {
+        WorkerScheduler.scheduleTokenRefresh(appContext.reactContext!!, intervalHours.toLong())
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Schedule periodic library sync worker.
+     *
+     * @param intervalHours How often to sync library (recommended: 24 hours)
+     * @param wifiOnly If true, only sync on unmetered (WiFi) connections
+     * @return Map with success flag
+     */
+    Function("scheduleLibrarySync") { intervalHours: Int, wifiOnly: Boolean ->
+      try {
+        WorkerScheduler.scheduleLibrarySync(appContext.reactContext!!, intervalHours.toLong(), wifiOnly)
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Cancel token refresh worker.
+     *
+     * @return Map with success flag
+     */
+    Function("cancelTokenRefresh") {
+      try {
+        WorkerScheduler.cancelTokenRefresh(appContext.reactContext!!)
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Cancel library sync worker.
+     *
+     * @return Map with success flag
+     */
+    Function("cancelLibrarySync") {
+      try {
+        WorkerScheduler.cancelLibrarySync(appContext.reactContext!!)
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Cancel all background workers.
+     *
+     * @return Map with success flag
+     */
+    Function("cancelAllBackgroundTasks") {
+      try {
+        WorkerScheduler.cancelAllWork(appContext.reactContext!!)
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Get status of token refresh worker.
+     *
+     * @return Map with worker state
+     */
+    Function("getTokenRefreshStatus") {
+      try {
+        val state = WorkerScheduler.getTokenRefreshStatus(appContext.reactContext!!)
+        mapOf(
+          "success" to true,
+          "state" to (state?.toString() ?: "NOT_SCHEDULED")
+        )
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Get status of library sync worker.
+     *
+     * @return Map with worker state
+     */
+    Function("getLibrarySyncStatus") {
+      try {
+        val state = WorkerScheduler.getLibrarySyncStatus(appContext.reactContext!!)
+        mapOf(
+          "success" to true,
+          "state" to (state?.toString() ?: "NOT_SCHEDULED")
+        )
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
     }
   }
 
@@ -849,5 +1311,12 @@ class ExpoRustBridgeModule : Module() {
     @JvmStatic external fun nativePauseDownload(paramsJson: String): String
     @JvmStatic external fun nativeResumeDownload(paramsJson: String): String
     @JvmStatic external fun nativeCancelDownload(paramsJson: String): String
+
+    // Account functions
+    @JvmStatic external fun nativeSaveAccount(paramsJson: String): String
+    @JvmStatic external fun nativeGetPrimaryAccount(paramsJson: String): String
+
+    // Testing functions
+    @JvmStatic external fun nativeClearLibrary(paramsJson: String): String
   }
 }

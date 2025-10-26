@@ -6,11 +6,22 @@ import { useTheme } from '../styles/theme';
 import type { Theme } from '../hooks/useStyles';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
+import {
+  scheduleTokenRefresh,
+  scheduleLibrarySync,
+  cancelTokenRefresh,
+  cancelLibrarySync,
+} from '../../modules/expo-rust-bridge';
 
 const DOWNLOAD_PATH_KEY = 'download_path';
 const AUTO_DOWNLOAD_KEY = 'auto_download';
 const WIFI_ONLY_KEY = 'wifi_only';
 const REMOVE_DRM_KEY = 'remove_drm';
+const SYNC_FREQUENCY_KEY = 'sync_frequency';
+const SYNC_WIFI_ONLY_KEY = 'sync_wifi_only';
+const AUTO_TOKEN_REFRESH_KEY = 'auto_token_refresh';
+
+type SyncFrequency = 'manual' | '1h' | '6h' | '12h' | '24h';
 
 export default function SettingsScreen() {
   const styles = useStyles(createStyles);
@@ -21,6 +32,11 @@ export default function SettingsScreen() {
   const [removeDRM, setRemoveDRM] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Sync settings
+  const [syncFrequency, setSyncFrequency] = useState<SyncFrequency>('manual');
+  const [syncWifiOnly, setSyncWifiOnly] = useState(true);
+  const [autoTokenRefresh, setAutoTokenRefresh] = useState(true);
+
   // Load saved settings on mount
   useEffect(() => {
     loadSettings();
@@ -28,17 +44,23 @@ export default function SettingsScreen() {
 
   const loadSettings = async () => {
     try {
-      const [savedPath, savedAuto, savedWifi, savedDRM] = await Promise.all([
+      const [savedPath, savedAuto, savedWifi, savedDRM, savedSyncFreq, savedSyncWifi, savedAutoRefresh] = await Promise.all([
         SecureStore.getItemAsync(DOWNLOAD_PATH_KEY),
         SecureStore.getItemAsync(AUTO_DOWNLOAD_KEY),
         SecureStore.getItemAsync(WIFI_ONLY_KEY),
         SecureStore.getItemAsync(REMOVE_DRM_KEY),
+        SecureStore.getItemAsync(SYNC_FREQUENCY_KEY),
+        SecureStore.getItemAsync(SYNC_WIFI_ONLY_KEY),
+        SecureStore.getItemAsync(AUTO_TOKEN_REFRESH_KEY),
       ]);
 
       if (savedPath) setDownloadPath(savedPath);
       if (savedAuto !== null) setAutoDownload(savedAuto === 'true');
       if (savedWifi !== null) setWifiOnly(savedWifi === 'true');
       if (savedDRM !== null) setRemoveDRM(savedDRM === 'true');
+      if (savedSyncFreq) setSyncFrequency(savedSyncFreq as SyncFrequency);
+      if (savedSyncWifi !== null) setSyncWifiOnly(savedSyncWifi === 'true');
+      if (savedAutoRefresh !== null) setAutoTokenRefresh(savedAutoRefresh === 'true');
     } catch (error) {
       console.error('[Settings] Failed to load settings:', error);
     } finally {
@@ -86,6 +108,97 @@ export default function SettingsScreen() {
   const handleRemoveDRMChange = async (value: boolean) => {
     setRemoveDRM(value);
     await saveSettings(REMOVE_DRM_KEY, value.toString());
+  };
+
+  const getSyncFrequencyLabel = (freq: SyncFrequency): string => {
+    switch (freq) {
+      case 'manual': return 'Manual only';
+      case '1h': return 'Every hour';
+      case '6h': return 'Every 6 hours';
+      case '12h': return 'Every 12 hours';
+      case '24h': return 'Every 24 hours';
+    }
+  };
+
+  const handleSyncFrequencyPress = () => {
+    const options = [
+      { label: 'Manual only', value: 'manual' as SyncFrequency },
+      { label: 'Every hour', value: '1h' as SyncFrequency },
+      { label: 'Every 6 hours', value: '6h' as SyncFrequency },
+      { label: 'Every 12 hours', value: '12h' as SyncFrequency },
+      { label: 'Every 24 hours', value: '24h' as SyncFrequency },
+    ];
+
+    Alert.alert(
+      'Library Sync Frequency',
+      'How often should the app sync your library automatically?',
+      [
+        ...options.map(opt => ({
+          text: opt.label,
+          onPress: () => handleSyncFrequencyChange(opt.value),
+        })),
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleSyncFrequencyChange = async (value: SyncFrequency) => {
+    setSyncFrequency(value);
+    await saveSettings(SYNC_FREQUENCY_KEY, value);
+
+    try {
+      if (value === 'manual') {
+        // Cancel library sync worker
+        cancelLibrarySync();
+        console.log('[Settings] Library sync worker cancelled');
+      } else {
+        // Schedule library sync worker with the selected interval
+        const hours = parseInt(value.replace('h', ''));
+        scheduleLibrarySync(hours, syncWifiOnly);
+        console.log(`[Settings] Library sync scheduled: every ${hours} hours, WiFi only: ${syncWifiOnly}`);
+      }
+    } catch (error: any) {
+      console.error('[Settings] Failed to schedule/cancel library sync:', error);
+      Alert.alert('Error', error.message || 'Failed to update sync schedule');
+    }
+  };
+
+  const handleSyncWifiOnlyChange = async (value: boolean) => {
+    setSyncWifiOnly(value);
+    await saveSettings(SYNC_WIFI_ONLY_KEY, value.toString());
+
+    // If sync is enabled, reschedule with new WiFi setting
+    if (syncFrequency !== 'manual') {
+      try {
+        const hours = parseInt(syncFrequency.replace('h', ''));
+        scheduleLibrarySync(hours, value);
+        console.log(`[Settings] Library sync rescheduled: WiFi only: ${value}`);
+      } catch (error: any) {
+        console.error('[Settings] Failed to reschedule library sync:', error);
+        Alert.alert('Error', error.message || 'Failed to update sync WiFi setting');
+      }
+    }
+  };
+
+  const handleAutoTokenRefreshChange = async (value: boolean) => {
+    setAutoTokenRefresh(value);
+    await saveSettings(AUTO_TOKEN_REFRESH_KEY, value.toString());
+
+    try {
+      if (value) {
+        // Schedule token refresh as backup (24 hours)
+        // Just-in-time refresh happens before each API call, this is a safety net
+        scheduleTokenRefresh(24);
+        console.log('[Settings] Token refresh scheduled: every 24 hours (backup mode)');
+      } else {
+        // Cancel token refresh worker
+        cancelTokenRefresh();
+        console.log('[Settings] Token refresh worker cancelled');
+      }
+    } catch (error: any) {
+      console.error('[Settings] Failed to schedule/cancel token refresh:', error);
+      Alert.alert('Error', error.message || 'Failed to update token refresh setting');
+    }
   };
 
   const getDisplayPath = (path: string | null): string => {
@@ -269,6 +382,57 @@ export default function SettingsScreen() {
               Full path: {downloadPath}
             </Text>
           )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Library Sync</Text>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Sync Frequency</Text>
+              <Text style={styles.settingDescription}>
+                How often to automatically sync your library from Audible
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleSyncFrequencyPress}
+              disabled={isLoading}
+            >
+              <Text style={styles.buttonText}>{getSyncFrequencyLabel(syncFrequency)}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Sync on Wi-Fi only</Text>
+              <Text style={styles.settingDescription}>
+                Only sync library when connected to Wi-Fi
+              </Text>
+            </View>
+            <Switch
+              value={syncWifiOnly}
+              onValueChange={handleSyncWifiOnlyChange}
+              trackColor={{ false: colors.border, true: colors.accentDim }}
+              thumbColor={syncWifiOnly ? colors.accent : colors.textSecondary}
+              disabled={syncFrequency === 'manual'}
+            />
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Auto Token Refresh</Text>
+              <Text style={styles.settingDescription}>
+                Periodic backup check (daily). Tokens auto-refresh before each API call.
+              </Text>
+            </View>
+            <Switch
+              value={autoTokenRefresh}
+              onValueChange={handleAutoTokenRefreshChange}
+              trackColor={{ false: colors.border, true: colors.accentDim }}
+              thumbColor={autoTokenRefresh ? colors.accent : colors.textSecondary}
+            />
+          </View>
         </View>
 
         <View style={styles.section}>

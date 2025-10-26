@@ -467,6 +467,101 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeRefres
         .into_raw()
 }
 
+/// Ensure access token is valid, refreshing if expired or expiring soon
+///
+/// This is a just-in-time token refresh function that checks if the access token
+/// is expired or expiring within the threshold, and automatically refreshes it if needed.
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db",
+///   "account_json": "{...}",
+///   "refresh_threshold_minutes": 30
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "account_json": "{...}",
+///     "was_refreshed": true,
+///     "new_expiry": "2025-10-26T12:00:00Z"
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeEnsureValidToken(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            account_json: String,
+            #[serde(default = "default_threshold")]
+            refresh_threshold_minutes: i64,
+        }
+
+        fn default_threshold() -> i64 {
+            30
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let result = RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+
+                // Parse original account to get expiry before refresh
+                let original_account: crate::api::auth::Account = serde_json::from_str(&params.account_json)
+                    .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
+                let original_expiry = original_account.identity.as_ref()
+                    .map(|i| i.access_token.expires_at);
+
+                // Ensure token is valid
+                let account_json = crate::api::auth::ensure_valid_token(
+                    db.pool(),
+                    &params.account_json,
+                    params.refresh_threshold_minutes,
+                ).await?;
+
+                // Parse updated account to get new expiry
+                let updated_account: crate::api::auth::Account = serde_json::from_str(&account_json)
+                    .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
+                let new_expiry = updated_account.identity.as_ref()
+                    .map(|i| i.access_token.expires_at);
+
+                let was_refreshed = original_expiry != new_expiry;
+
+                Ok::<serde_json::Value, crate::LibationError>(serde_json::json!({
+                    "account_json": account_json,
+                    "was_refreshed": was_refreshed,
+                    "new_expiry": new_expiry.map(|e| e.to_rfc3339()),
+                    "original_expiry": original_expiry.map(|e| e.to_rfc3339()),
+                }))
+            })?;
+
+            Ok(success_response(result))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
 /// Get activation bytes for DRM decryption
 ///
 /// # Arguments (JSON string)
@@ -650,11 +745,18 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeSyncLi
             let params: Params = serde_json::from_str(&params_str)
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
-            let account: crate::api::auth::Account = serde_json::from_str(&params.account_json)
-                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
-
             let result = RUNTIME.block_on(async {
                 let db = crate::storage::Database::new(&params.db_path).await?;
+
+                // Ensure token is valid before making API calls
+                let account_json = crate::api::auth::ensure_valid_token(
+                    db.pool(),
+                    &params.account_json,
+                    30, // Refresh if expiring within 30 minutes
+                ).await?;
+
+                let account: crate::api::auth::Account = serde_json::from_str(&account_json)
+                    .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
 
                 let mut client = crate::api::client::AudibleClient::new(account.clone())?;
 
@@ -1264,8 +1366,19 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeDownlo
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             let result = RUNTIME.block_on(async {
+                // Create temporary database connection for token refresh
+                // TODO: Accept db_path in params to avoid creating temporary in-memory DB
+                let temp_db = crate::storage::Database::new_in_memory().await?;
+
+                // Ensure token is valid before making API calls
+                let account_json = crate::api::auth::ensure_valid_token(
+                    temp_db.pool(),
+                    &params.account_json,
+                    30, // Refresh if expiring within 30 minutes
+                ).await?;
+
                 // Parse account
-                let account: crate::api::auth::Account = serde_json::from_str(&params.account_json)
+                let account: crate::api::auth::Account = serde_json::from_str(&account_json)
                     .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
 
                 // Parse quality
@@ -1450,7 +1563,18 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetDow
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             let result = RUNTIME.block_on(async {
-                let account: crate::api::auth::Account = serde_json::from_str(&params.account_json)
+                // Create temporary database connection for token refresh
+                // TODO: Accept db_path in params to avoid creating temporary in-memory DB
+                let temp_db = crate::storage::Database::new_in_memory().await?;
+
+                // Ensure token is valid before making API calls
+                let account_json = crate::api::auth::ensure_valid_token(
+                    temp_db.pool(),
+                    &params.account_json,
+                    30, // Refresh if expiring within 30 minutes
+                ).await?;
+
+                let account: crate::api::auth::Account = serde_json::from_str(&account_json)
                     .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
 
                 let quality = match params.quality.as_str() {
@@ -1879,6 +2003,182 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeCancel
             })?;
 
             Ok(success_response(serde_json::json!({"success": true})))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+// ============================================================================
+// ACCOUNT FUNCTIONS
+// ============================================================================
+
+/// Save account to database
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../audible.db",
+///   "account_json": "{ ... }"  // Complete account JSON
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": { "saved": true }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeSaveAccount(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            account_json: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+
+                // Extract account_id from JSON
+                let account: serde_json::Value = serde_json::from_str(&params.account_json)
+                    .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
+
+                let account_id = account["account_id"]
+                    .as_str()
+                    .ok_or_else(|| crate::LibationError::InvalidInput("Missing account_id".to_string()))?;
+
+                crate::storage::accounts::save_account(db.pool(), account_id, &params.account_json).await?;
+
+                Ok(success_response(serde_json::json!({"saved": true})))
+            })
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Get primary account from database
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../audible.db"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "account": "{ ... }"  // Complete account JSON or null if none
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetPrimaryAccount(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let account_json = RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                crate::storage::accounts::get_primary_account(db.pool()).await
+            })?;
+
+            let response = serde_json::json!({
+                "account": account_json,
+            });
+
+            Ok(success_response(response))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Clear all library data (for testing)
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../audible.db"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": { "deleted": true }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeClearLibrary(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                crate::storage::queries::clear_library(db.pool()).await?;
+                Ok(success_response(serde_json::json!({"deleted": true})))
+            })
         })() {
             Ok(result) => result,
             Err(e) => error_response(&e.to_string()),

@@ -740,6 +740,27 @@ pub async fn upsert_book(pool: &SqlitePool, book: &NewBook) -> Result<i64> {
     }
 }
 
+/// Clear all library data (for testing)
+///
+/// Deletes all books and related data from the database.
+/// Use with caution - this is irreversible!
+pub async fn clear_library(pool: &SqlitePool) -> Result<()> {
+    // Delete in correct order to respect foreign keys
+    sqlx::query("DELETE FROM LibraryBooks").execute(pool).await?;
+    sqlx::query("DELETE FROM SeriesBooks").execute(pool).await?;
+    sqlx::query("DELETE FROM BookContributors").execute(pool).await?;
+    sqlx::query("DELETE FROM BookCategories").execute(pool).await?;
+    sqlx::query("DELETE FROM UserDefinedItems").execute(pool).await?;
+    sqlx::query("DELETE FROM Supplements").execute(pool).await?;
+    sqlx::query("DELETE FROM Books").execute(pool).await?;
+    sqlx::query("DELETE FROM Series").execute(pool).await?;
+    sqlx::query("DELETE FROM Contributors").execute(pool).await?;
+    sqlx::query("DELETE FROM Categories").execute(pool).await?;
+    sqlx::query("DELETE FROM CategoryLadders").execute(pool).await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

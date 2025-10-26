@@ -138,6 +138,7 @@
 use crate::error::{LibationError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 
 // ============================================================================
@@ -1569,6 +1570,127 @@ pub async fn refresh_access_token(
     Ok(token_response)
 }
 
+/// Ensure access token is valid, refreshing if expired or expiring soon
+///
+/// This is a just-in-time token refresh function that should be called before
+/// making any Audible API requests. It checks if the access token is expired
+/// or expiring within the threshold, and automatically refreshes it if needed.
+///
+/// # Arguments
+/// * `pool` - Database connection pool for saving updated tokens
+/// * `account_json` - Complete account JSON string
+/// * `refresh_threshold_minutes` - Minutes before expiry to trigger refresh (default: 30)
+///
+/// # Returns
+/// Account JSON string (either original or with updated tokens)
+///
+/// # Errors
+/// Returns error if:
+/// - Account JSON is invalid
+/// - Token is expired and refresh fails
+/// - Database update fails
+///
+/// # Example
+/// ```rust,no_run
+/// # use rust_core::api::auth::ensure_valid_token;
+/// # use sqlx::SqlitePool;
+/// # async fn example(pool: &SqlitePool, account_json: &str) -> rust_core::error::Result<()> {
+/// // Before making API calls, ensure token is valid
+/// let account_json = ensure_valid_token(pool, account_json, 30).await?;
+///
+/// // Now safe to use account_json for API calls
+/// # Ok(())
+/// # }
+/// ```
+pub async fn ensure_valid_token(
+    pool: &SqlitePool,
+    account_json: &str,
+    refresh_threshold_minutes: i64,
+) -> Result<String> {
+    use chrono::Duration;
+    use crate::storage::accounts::save_account;
+
+    // Parse account JSON
+    let mut account: Account = serde_json::from_str(account_json)
+        .map_err(|e| LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
+
+    // Check if we have identity with access token
+    let identity = account.identity.as_ref()
+        .ok_or_else(|| LibationError::InvalidState(
+            "Account has no identity - cannot check token expiry".to_string()
+        ))?;
+
+    let expires_at = identity.access_token.expires_at;
+    let now = chrono::Utc::now();
+    let threshold = Duration::minutes(refresh_threshold_minutes);
+    let refresh_by = expires_at - threshold;
+
+    // Check if token is expired or expiring soon
+    if now >= refresh_by {
+        eprintln!(
+            "🔄 Access token for account '{}' is expiring soon (expires: {}, refresh by: {}). Refreshing...",
+            account.account_id,
+            expires_at.to_rfc3339(),
+            refresh_by.to_rfc3339()
+        );
+
+        // Extract data needed for refresh
+        let locale = identity.locale.clone();
+        let refresh_token = identity.refresh_token.clone();
+        let device_serial = identity.device_serial_number.clone();
+
+        // Refresh token
+        let token_response = refresh_access_token(&locale, &refresh_token, &device_serial).await?;
+
+        // Update account with new tokens
+        let identity_mut = account.identity.as_mut().unwrap();
+
+        // Calculate expiry time from expires_in (seconds)
+        let expires_at = now + Duration::seconds(token_response.expires_in);
+
+        // Update access token
+        identity_mut.access_token = AccessToken {
+            token: token_response.access_token.clone(),
+            expires_at,
+        };
+
+        // Update refresh token if Amazon returned a new one
+        if let Some(new_refresh_token) = token_response.refresh_token {
+            identity_mut.refresh_token = new_refresh_token;
+            eprintln!("🔑 Received new refresh token from Amazon");
+        }
+
+        // Serialize updated account
+        let updated_json = serde_json::to_string(&account)
+            .map_err(|e| LibationError::InvalidState(format!("Failed to serialize account: {}", e)))?;
+
+        // Get the new expiry for logging before account is moved
+        let new_expiry_str = expires_at.to_rfc3339();
+        let account_id = account.account_id.clone();
+
+        // Save to database
+        save_account(pool, &account_id, &updated_json).await?;
+
+        eprintln!(
+            "✅ Access token refreshed for account '{}'. New expiry: {}",
+            account_id,
+            new_expiry_str
+        );
+
+        Ok(updated_json)
+    } else {
+        // Token is still valid
+        let time_until_expiry = expires_at - now;
+        eprintln!(
+            "✓ Access token for account '{}' is still valid (expires in {} minutes)",
+            account.account_id,
+            time_until_expiry.num_minutes()
+        );
+
+        Ok(account_json.to_string())
+    }
+}
+
 /// Register a new device with Audible
 ///
 /// Device registration generates a private key and registers the device
@@ -2249,5 +2371,124 @@ mod tests {
                 panic!("Callback parsing failed - check the URL format");
             }
         }
+    }
+
+    /// Test ensure_valid_token with a token that doesn't need refresh
+    #[tokio::test]
+    async fn test_ensure_valid_token_not_expired() {
+        use crate::storage::Database;
+
+        // Create in-memory database
+        let db = Database::new_in_memory().await.unwrap();
+
+        // Create account with token expiring in 2 hours (well beyond 30 min threshold)
+        let expires_at = chrono::Utc::now() + chrono::Duration::hours(2);
+        let account = Account {
+            account_id: "test@example.com".to_string(),
+            account_name: "Test Account".to_string(),
+            library_scan: true,
+            decrypt_key: String::new(),
+            identity: Some(Identity {
+                access_token: AccessToken {
+                    token: "test_token".to_string(),
+                    expires_at,
+                },
+                refresh_token: "test_refresh".to_string(),
+                device_private_key: "test_key".to_string(),
+                adp_token: "test_adp".to_string(),
+                cookies: HashMap::new(),
+                device_serial_number: "test_serial".to_string(),
+                device_type: "test_type".to_string(),
+                device_name: "test_device".to_string(),
+                amazon_account_id: "test_amazon_id".to_string(),
+                store_authentication_cookie: "test_cookie".to_string(),
+                locale: Locale::us(),
+                customer_info: CustomerInfo {
+                    account_pool: "test_pool".to_string(),
+                    user_id: "test_user".to_string(),
+                    home_region: "NA".to_string(),
+                    name: "Test User".to_string(),
+                    given_name: "Test".to_string(),
+                },
+            }),
+        };
+
+        let mut account_json_value: serde_json::Value = serde_json::to_value(&account).unwrap();
+        // Add locale at top level for save_account
+        account_json_value["locale"] = serde_json::json!({"country_code": "us"});
+        let account_json = serde_json::to_string(&account_json_value).unwrap();
+
+        // Save account to DB
+        crate::storage::accounts::save_account(db.pool(), &account.account_id, &account_json)
+            .await
+            .unwrap();
+
+        // Ensure token is valid (should not refresh)
+        let result = ensure_valid_token(db.pool(), &account_json, 30).await.unwrap();
+
+        // Parse result
+        let result_account: Account = serde_json::from_str(&result).unwrap();
+
+        // Token should be unchanged
+        assert_eq!(result_account.identity.unwrap().access_token.token, "test_token");
+    }
+
+    /// Test ensure_valid_token with a token that is expiring soon
+    #[tokio::test]
+    #[ignore] // Requires real API credentials to test refresh
+    async fn test_ensure_valid_token_expiring_soon() {
+        use crate::storage::Database;
+
+        // Create in-memory database
+        let db = Database::new_in_memory().await.unwrap();
+
+        // Create account with token expiring in 10 minutes (within 30 min threshold)
+        let expires_at = chrono::Utc::now() + chrono::Duration::minutes(10);
+        let account = Account {
+            account_id: "test@example.com".to_string(),
+            account_name: "Test Account".to_string(),
+            library_scan: true,
+            decrypt_key: String::new(),
+            identity: Some(Identity {
+                access_token: AccessToken {
+                    token: "old_token".to_string(),
+                    expires_at,
+                },
+                refresh_token: "valid_refresh_token".to_string(), // Would need real token
+                device_private_key: "test_key".to_string(),
+                adp_token: "test_adp".to_string(),
+                cookies: HashMap::new(),
+                device_serial_number: "test_serial".to_string(),
+                device_type: "test_type".to_string(),
+                device_name: "test_device".to_string(),
+                amazon_account_id: "test_amazon_id".to_string(),
+                store_authentication_cookie: "test_cookie".to_string(),
+                locale: Locale::us(),
+                customer_info: CustomerInfo {
+                    account_pool: "test_pool".to_string(),
+                    user_id: "test_user".to_string(),
+                    home_region: "NA".to_string(),
+                    name: "Test User".to_string(),
+                    given_name: "Test".to_string(),
+                },
+            }),
+        };
+
+        let mut account_json_value: serde_json::Value = serde_json::to_value(&account).unwrap();
+        // Add locale at top level for save_account
+        account_json_value["locale"] = serde_json::json!({"country_code": "us"});
+        let account_json = serde_json::to_string(&account_json_value).unwrap();
+
+        // Save account to DB
+        crate::storage::accounts::save_account(db.pool(), &account.account_id, &account_json)
+            .await
+            .unwrap();
+
+        // This would refresh the token if we had valid credentials
+        // For now, we just verify the function signature works
+        let result = ensure_valid_token(db.pool(), &account_json, 30).await;
+
+        // Would fail with invalid credentials, which is expected
+        assert!(result.is_err());
     }
 }

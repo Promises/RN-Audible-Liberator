@@ -6,6 +6,7 @@ import { useTheme } from '../styles/theme';
 import LibraryScreen from '../screens/LibraryScreen';
 import SimpleAccountScreen from '../screens/SimpleAccountScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import TaskDebugScreen from '../screens/TaskDebugScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -55,6 +56,14 @@ export default function AppNavigator() {
           component={SettingsScreen}
           options={{
             tabBarLabel: 'Settings',
+            headerShown: false,
+          }}
+        />
+        <Tab.Screen
+          name="Debug"
+          component={TaskDebugScreen}
+          options={{
+            tabBarLabel: 'Debug',
             headerShown: false,
           }}
         />

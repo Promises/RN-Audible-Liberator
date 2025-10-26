@@ -1,6 +1,7 @@
 import React, {useState, useEffect, useRef} from 'react';
 import {View, Text, FlatList, TouchableOpacity, RefreshControl, Image, Alert, ActivityIndicator, Platform, PermissionsAndroid} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {useFocusEffect} from '@react-navigation/native';
 import {useStyles} from '../hooks/useStyles';
 import {useTheme} from '../styles/theme';
 import type {Theme} from '../hooks/useStyles';
@@ -8,7 +9,7 @@ import {
     getBooks,
     initializeDatabase,
     refreshToken,
-    enqueueDownload,
+    enqueueDownloadNew,
     listDownloadTasks,
     pauseDownload,
     resumeDownload,
@@ -36,6 +37,14 @@ export default function LibraryScreen() {
     useEffect(() => {
         loadBooks(true);
     }, []);
+
+    // Reload books when tab is focused (e.g., after syncing from Account tab)
+    useFocusEffect(
+        React.useCallback(() => {
+            console.log('[LibraryScreen] Tab focused, reloading books...');
+            loadBooks(true);
+        }, [])
+    );
 
     // Poll for download progress
     useEffect(() => {
@@ -264,24 +273,22 @@ export default function LibraryScreen() {
                 return;
             }
 
-            console.log('[LibraryScreen] Enqueueing download:', book.title, book.audible_product_id);
+            console.log('[LibraryScreen] Enqueueing download via NEW system:', book.title, book.audible_product_id);
 
-            // Get database path
-            const cacheUri = Paths.cache.uri;
-            const cachePath = cacheUri.replace('file://', '');
-            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+            // Extract author from books array
+            const author = (book.authors?.length || 0) > 0 ? book.authors.join(', ') : undefined;
 
-            // Enqueue download (runs in background)
-            await enqueueDownload(
-                dbPath,
-                account,
+            // Enqueue download (runs in NEW background task system)
+            await enqueueDownloadNew(
                 book.audible_product_id,
                 book.title,
+                author,
+                account,
                 downloadDir,
                 'High'
             );
 
-            console.log('[LibraryScreen] Download enqueued successfully');
+            console.log('[LibraryScreen] Download enqueued successfully via NEW system');
 
             Alert.alert(
                 'Download Started',

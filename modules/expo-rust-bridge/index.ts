@@ -635,6 +635,155 @@ export interface ExpoRustBridgeModule {
    * @returns Success status
    */
   cancelDownload(dbPath: string, taskId: string): RustResponse<{ success: boolean }>;
+
+  // --------------------------------------------------------------------------
+  // Background Task Manager (New System)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Start the background task service.
+   */
+  startBackgroundService(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Stop the background task service.
+   */
+  stopBackgroundService(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Enqueue a download using the new system.
+   */
+  enqueueDownloadNew(
+    asin: string,
+    title: string,
+    author: string | undefined,
+    accountJson: string,
+    outputDirectory: string,
+    quality: string
+  ): Promise<RustResponse<{ message: string }>>;
+
+  /**
+   * Start library sync using the new system.
+   */
+  startLibrarySyncNew(fullSync: boolean): Promise<RustResponse<{ message: string }>>;
+
+  /**
+   * Enable automatic downloads.
+   */
+  enableAutoDownload(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Disable automatic downloads.
+   */
+  disableAutoDownload(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Enable automatic library sync.
+   */
+  enableAutoSync(intervalHours?: number): RustResponse<{ success: boolean; data?: { intervalHours: number } }>;
+
+  /**
+   * Disable automatic library sync.
+   */
+  disableAutoSync(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Pause a task.
+   */
+  pauseTask(taskId: string): Promise<RustResponse<{ success: boolean }>>;
+
+  /**
+   * Resume a task.
+   */
+  resumeTask(taskId: string): Promise<RustResponse<{ success: boolean }>>;
+
+  /**
+   * Cancel a task.
+   */
+  cancelTask(taskId: string): Promise<RustResponse<{ success: boolean }>>;
+
+  /**
+   * Get all active tasks.
+   */
+  getActiveTasks(): RustResponse<BackgroundTask[]>;
+
+  /**
+   * Get a specific task by ID.
+   */
+  getTask(taskId: string): RustResponse<BackgroundTask | null>;
+
+  /**
+   * Clear all tasks (for debugging/recovery from stuck states).
+   */
+  clearAllTasks(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Check if the background service is currently running.
+   */
+  isBackgroundServiceRunning(): RustResponse<{ isRunning: boolean }>;
+
+  // --------------------------------------------------------------------------
+  // Account Storage (SQLite)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Save account to SQLite database (single source of truth).
+   */
+  saveAccount(dbPath: string, accountJson: string): Promise<RustResponse<{ saved: boolean }>>;
+
+  /**
+   * Get primary account from SQLite database.
+   */
+  getPrimaryAccount(dbPath: string): Promise<RustResponse<{ account: string | null }>>;
+
+  /**
+   * Clear all library data (for testing).
+   */
+  clearLibrary(dbPath: string): Promise<RustResponse<{ deleted: boolean }>>;
+
+  // --------------------------------------------------------------------------
+  // Periodic Worker Scheduling
+  // --------------------------------------------------------------------------
+
+  /**
+   * Schedule periodic token refresh worker.
+   *
+   * @param intervalHours - Refresh interval in hours (typically 12)
+   */
+  scheduleTokenRefresh(intervalHours: number): RustResponse<{ success: boolean }>;
+
+  /**
+   * Schedule periodic library sync worker.
+   *
+   * @param intervalHours - Sync interval in hours (1, 6, 12, or 24)
+   * @param wifiOnly - Whether to only sync on Wi-Fi
+   */
+  scheduleLibrarySync(intervalHours: number, wifiOnly: boolean): RustResponse<{ success: boolean }>;
+
+  /**
+   * Cancel token refresh worker.
+   */
+  cancelTokenRefresh(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Cancel library sync worker.
+   */
+  cancelLibrarySync(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Cancel all background workers.
+   */
+  cancelAllBackgroundTasks(): RustResponse<{ success: boolean }>;
+
+  /**
+   * Get status of token refresh worker.
+   */
+  getTokenRefreshStatus(): RustResponse<{ state: string }>;
+
+  /**
+   * Get status of library sync worker.
+   */
+  getLibrarySyncStatus(): RustResponse<{ state: string }>;
 }
 
 // ============================================================================
@@ -1166,6 +1315,357 @@ function cancelDownload(dbPath: string, taskId: string): void {
 }
 
 // ============================================================================
+// Background Task Manager (New System)
+// ============================================================================
+
+/**
+ * Task types in the background task system.
+ */
+export type BackgroundTaskType = 'DOWNLOAD' | 'TOKEN_REFRESH' | 'LIBRARY_SYNC' | 'AUTO_DOWNLOAD';
+
+/**
+ * Task priorities.
+ */
+export type TaskPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+/**
+ * Task statuses.
+ */
+export type BackgroundTaskStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+/**
+ * Background task representation.
+ */
+export interface BackgroundTask {
+  id: string;
+  type: BackgroundTaskType;
+  priority: TaskPriority;
+  status: BackgroundTaskStatus;
+  metadata: Record<string, any>;
+  createdAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  error?: string;
+}
+
+/**
+ * Start the background task service.
+ * Must be called once when app starts.
+ */
+function startBackgroundService(): void {
+  const response = NativeModule!.startBackgroundService();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to start background service');
+  }
+}
+
+/**
+ * Stop the background task service.
+ * This disables all automatic features (token refresh, library sync, auto-download).
+ */
+function stopBackgroundService(): void {
+  const response = NativeModule!.stopBackgroundService();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to stop background service');
+  }
+}
+
+/**
+ * Enqueue a download using the new background task system.
+ *
+ * @param asin - Book ASIN
+ * @param title - Book title
+ * @param author - Optional book author
+ * @param account - Account with authentication
+ * @param outputDirectory - Output directory (SAF URI)
+ * @param quality - Download quality
+ */
+async function enqueueDownloadNew(
+  asin: string,
+  title: string,
+  author: string | undefined,
+  account: Account,
+  outputDirectory: string,
+  quality: string = 'High'
+): Promise<void> {
+  const accountJson = JSON.stringify(account);
+
+  const response = await NativeModule!.enqueueDownloadNew(
+    asin,
+    title,
+    author,
+    accountJson,
+    outputDirectory,
+    quality
+  );
+
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to enqueue download');
+  }
+}
+
+/**
+ * Start library sync using the new background task system.
+ *
+ * @param fullSync - Whether to do a full sync (default: false)
+ */
+async function startLibrarySyncNew(fullSync: boolean = false): Promise<void> {
+  const response = await NativeModule!.startLibrarySyncNew(fullSync);
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to start library sync');
+  }
+}
+
+/**
+ * Enable automatic downloads after library sync.
+ */
+function enableAutoDownload(): void {
+  const response = NativeModule!.enableAutoDownload();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to enable auto-download');
+  }
+}
+
+/**
+ * Disable automatic downloads.
+ */
+function disableAutoDownload(): void {
+  const response = NativeModule!.disableAutoDownload();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to disable auto-download');
+  }
+}
+
+/**
+ * Enable automatic library sync.
+ *
+ * @param intervalHours - Sync interval in hours (default: 24)
+ */
+function enableAutoSync(intervalHours?: number): void {
+  const response = NativeModule!.enableAutoSync(intervalHours);
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to enable auto-sync');
+  }
+}
+
+/**
+ * Disable automatic library sync.
+ */
+function disableAutoSync(): void {
+  const response = NativeModule!.disableAutoSync();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to disable auto-sync');
+  }
+}
+
+/**
+ * Pause a task.
+ *
+ * @param taskId - Task ID to pause
+ */
+async function pauseTask(taskId: string): Promise<boolean> {
+  const response = await NativeModule!.pauseTask(taskId);
+  return response.success || false;
+}
+
+/**
+ * Resume a paused task.
+ *
+ * @param taskId - Task ID to resume
+ */
+async function resumeTask(taskId: string): Promise<boolean> {
+  const response = await NativeModule!.resumeTask(taskId);
+  return response.success || false;
+}
+
+/**
+ * Cancel a task.
+ *
+ * @param taskId - Task ID to cancel
+ */
+async function cancelTask(taskId: string): Promise<boolean> {
+  const response = await NativeModule!.cancelTask(taskId);
+  return response.success || false;
+}
+
+/**
+ * Get all active tasks.
+ *
+ * @returns Array of active tasks
+ */
+function getActiveTasks(): BackgroundTask[] {
+  const response = NativeModule!.getActiveTasks();
+  if (!response.success || !response.data) {
+    return [];
+  }
+  return response.data as BackgroundTask[];
+}
+
+/**
+ * Get a specific task by ID.
+ *
+ * @param taskId - Task ID
+ * @returns Task details or null if not found
+ */
+function getTask(taskId: string): BackgroundTask | null {
+  const response = NativeModule!.getTask(taskId);
+  if (!response.success || !response.data) {
+    return null;
+  }
+  return response.data as BackgroundTask;
+}
+
+/**
+ * Clear all tasks (for debugging/recovery from stuck states).
+ *
+ * This removes all active tasks from the task manager. Use this to recover
+ * from stuck states or clear completed/failed tasks.
+ */
+function clearAllTasks(): void {
+  const response = NativeModule!.clearAllTasks();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to clear all tasks');
+  }
+}
+
+/**
+ * Check if the background service is currently running.
+ *
+ * @returns true if the service is running, false otherwise
+ */
+function isBackgroundServiceRunning(): boolean {
+  const response = NativeModule!.isBackgroundServiceRunning();
+  if (!response.success || !response.data) {
+    return false;
+  }
+  return response.data.isRunning;
+}
+
+/**
+ * Save account to SQLite database (single source of truth).
+ *
+ * @param dbPath - Database path
+ * @param account - Account object
+ */
+async function saveAccount(dbPath: string, account: Account): Promise<void> {
+  const accountJson = JSON.stringify(account);
+  const response = await NativeModule!.saveAccount(dbPath, accountJson);
+  unwrapResult(response);
+}
+
+/**
+ * Get primary account from SQLite database.
+ *
+ * @param dbPath - Database path
+ * @returns Account object or null if no account exists
+ */
+async function getPrimaryAccount(dbPath: string): Promise<Account | null> {
+  const response = await NativeModule!.getPrimaryAccount(dbPath);
+  const data = unwrapResult(response);
+
+  if (!data.account || data.account === 'null') {
+    return null;
+  }
+
+  return JSON.parse(data.account);
+}
+
+/**
+ * Clear all library data (for testing).
+ *
+ * @param dbPath - Database path
+ */
+async function clearLibrary(dbPath: string): Promise<void> {
+  const response = await NativeModule!.clearLibrary(dbPath);
+  unwrapResult(response);
+}
+
+// ============================================================================
+// Periodic Worker Scheduling
+// ============================================================================
+
+/**
+ * Schedule periodic token refresh worker.
+ *
+ * @param intervalHours - Refresh interval in hours (typically 12)
+ */
+function scheduleTokenRefresh(intervalHours: number): void {
+  const response = NativeModule!.scheduleTokenRefresh(intervalHours);
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to schedule token refresh');
+  }
+}
+
+/**
+ * Schedule periodic library sync worker.
+ *
+ * @param intervalHours - Sync interval in hours (1, 6, 12, or 24)
+ * @param wifiOnly - Whether to only sync on Wi-Fi
+ */
+function scheduleLibrarySync(intervalHours: number, wifiOnly: boolean): void {
+  const response = NativeModule!.scheduleLibrarySync(intervalHours, wifiOnly);
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to schedule library sync');
+  }
+}
+
+/**
+ * Cancel token refresh worker.
+ */
+function cancelTokenRefresh(): void {
+  const response = NativeModule!.cancelTokenRefresh();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to cancel token refresh');
+  }
+}
+
+/**
+ * Cancel library sync worker.
+ */
+function cancelLibrarySync(): void {
+  const response = NativeModule!.cancelLibrarySync();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to cancel library sync');
+  }
+}
+
+/**
+ * Cancel all background workers.
+ */
+function cancelAllBackgroundTasks(): void {
+  const response = NativeModule!.cancelAllBackgroundTasks();
+  if (!response.success) {
+    throw new RustBridgeError(response.error || 'Failed to cancel all background tasks');
+  }
+}
+
+/**
+ * Get status of token refresh worker.
+ *
+ * @returns Worker state (NOT_SCHEDULED, ENQUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED)
+ */
+function getTokenRefreshStatus(): string {
+  const response = NativeModule!.getTokenRefreshStatus();
+  if (!response.success || !response.data) {
+    return 'NOT_SCHEDULED';
+  }
+  return response.data.state;
+}
+
+/**
+ * Get status of library sync worker.
+ *
+ * @returns Worker state (NOT_SCHEDULED, ENQUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED)
+ */
+function getLibrarySyncStatus(): string {
+  const response = NativeModule!.getLibrarySyncStatus();
+  if (!response.success || !response.data) {
+    return 'NOT_SCHEDULED';
+  }
+  return response.data.state;
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -1188,11 +1688,40 @@ export {
   generateDeviceSerial,
   unwrapResult,
   RustBridgeError,
-  // Download Manager
+  // Download Manager (Old System)
   enqueueDownload,
   getDownloadTask,
   listDownloadTasks,
   pauseDownload,
   resumeDownload,
   cancelDownload,
+  // Background Task Manager (New System)
+  startBackgroundService,
+  stopBackgroundService,
+  enqueueDownloadNew,
+  startLibrarySyncNew,
+  enableAutoDownload,
+  disableAutoDownload,
+  enableAutoSync,
+  disableAutoSync,
+  pauseTask,
+  resumeTask,
+  cancelTask,
+  getActiveTasks,
+  getTask,
+  clearAllTasks,
+  isBackgroundServiceRunning,
+  // Account Storage (SQLite)
+  saveAccount,
+  getPrimaryAccount,
+  // Testing
+  clearLibrary,
+  // Periodic Worker Scheduling
+  scheduleTokenRefresh,
+  scheduleLibrarySync,
+  cancelTokenRefresh,
+  cancelLibrarySync,
+  cancelAllBackgroundTasks,
+  getTokenRefreshStatus,
+  getLibrarySyncStatus,
 };

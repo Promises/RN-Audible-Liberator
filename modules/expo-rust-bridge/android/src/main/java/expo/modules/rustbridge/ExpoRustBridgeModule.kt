@@ -220,6 +220,68 @@ class ExpoRustBridgeModule : Module() {
       parseJsonResponse(nativeSearchBooks(params.toString()))
     }
 
+    /**
+     * Get books with advanced filtering, sorting, and search.
+     *
+     * @param dbPath The path to the SQLite database file
+     * @param offset Pagination offset
+     * @param limit Maximum number of results
+     * @param searchQuery Optional search query (searches title, author, narrator)
+     * @param seriesName Optional series filter
+     * @param category Optional category/genre filter
+     * @param sortField Sort field: "title", "release_date", or "date_added"
+     * @param sortDirection Sort direction: "asc" or "desc"
+     * @return Map with success flag, books array, and total_count
+     */
+    Function("getBooksWithFilters") {
+      dbPath: String,
+      offset: Int,
+      limit: Int,
+      searchQuery: String?,
+      seriesName: String?,
+      category: String?,
+      sortField: String?,
+      sortDirection: String?
+    ->
+      val params = JSONObject().apply {
+        put("db_path", dbPath)
+        put("offset", offset)
+        put("limit", limit)
+        if (searchQuery != null) put("search_query", searchQuery)
+        if (seriesName != null) put("series_name", seriesName)
+        if (category != null) put("category", category)
+        if (sortField != null) put("sort_field", sortField)
+        if (sortDirection != null) put("sort_direction", sortDirection)
+      }
+      parseJsonResponse(nativeGetBooksWithFilters(params.toString()))
+    }
+
+    /**
+     * Get all unique series names from the library.
+     *
+     * @param dbPath The path to the SQLite database file
+     * @return Map with success flag and array of series names
+     */
+    Function("getAllSeries") { dbPath: String ->
+      val params = JSONObject().apply {
+        put("db_path", dbPath)
+      }
+      parseJsonResponse(nativeGetAllSeries(params.toString()))
+    }
+
+    /**
+     * Get all unique categories/genres from the library.
+     *
+     * @param dbPath The path to the SQLite database file
+     * @return Map with success flag and array of category names
+     */
+    Function("getAllCategories") { dbPath: String ->
+      val params = JSONObject().apply {
+        put("db_path", dbPath)
+      }
+      parseJsonResponse(nativeGetAllCategories(params.toString()))
+    }
+
     // ============================================================================
     // DOWNLOAD & DECRYPTION FUNCTIONS
     // ============================================================================
@@ -1294,6 +1356,9 @@ class ExpoRustBridgeModule : Module() {
     @JvmStatic external fun nativeSyncLibraryPage(paramsJson: String): String
     @JvmStatic external fun nativeGetBooks(paramsJson: String): String
     @JvmStatic external fun nativeSearchBooks(paramsJson: String): String
+    @JvmStatic external fun nativeGetBooksWithFilters(paramsJson: String): String
+    @JvmStatic external fun nativeGetAllSeries(paramsJson: String): String
+    @JvmStatic external fun nativeGetAllCategories(paramsJson: String): String
     @JvmStatic external fun nativeDownloadBook(paramsJson: String): String
     @JvmStatic external fun nativeDecryptAAX(paramsJson: String): String
     @JvmStatic external fun nativeValidateActivationBytes(paramsJson: String): String

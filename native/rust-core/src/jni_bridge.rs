@@ -948,6 +948,273 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeSearch
         .into_raw()
 }
 
+/// Get books with search, filter, and sort parameters
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db",
+///   "offset": 0,
+///   "limit": 100,
+///   "search_query": "harry potter",  // optional
+///   "series_name": "Harry Potter",   // optional
+///   "category": "Fantasy",           // optional
+///   "sort_field": "title",           // "title" | "release_date" | "date_added"
+///   "sort_direction": "asc"          // "asc" | "desc"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "books": [...],
+///     "total_count": 123
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetBooksWithFilters(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            offset: i64,
+            limit: i64,
+            search_query: Option<String>,
+            series_name: Option<String>,
+            category: Option<String>,
+            sort_field: Option<String>,
+            sort_direction: Option<String>,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let result = RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+
+                // Build query parameters
+                let mut query_params = crate::storage::BookQueryParams {
+                    search_query: params.search_query,
+                    series_name: params.series_name,
+                    category: params.category,
+                    sort_field: None,
+                    sort_direction: None,
+                    limit: params.limit,
+                    offset: params.offset,
+                };
+
+                // Parse sort field
+                if let Some(field) = params.sort_field {
+                    query_params.sort_field = match field.as_str() {
+                        "title" => Some(crate::storage::SortField::Title),
+                        "release_date" => Some(crate::storage::SortField::ReleaseDate),
+                        "date_added" => Some(crate::storage::SortField::DateAdded),
+                        "series" => Some(crate::storage::SortField::Series),
+                        _ => None,
+                    };
+                }
+
+                // Parse sort direction
+                if let Some(dir) = params.sort_direction {
+                    query_params.sort_direction = match dir.as_str() {
+                        "asc" => Some(crate::storage::SortDirection::Asc),
+                        "desc" => Some(crate::storage::SortDirection::Desc),
+                        _ => None,
+                    };
+                }
+
+                let books = crate::storage::queries::list_books_with_filters(db.pool(), &query_params).await?;
+                let total_count = crate::storage::queries::count_books_with_filters(db.pool(), &query_params).await?;
+
+                // Convert BookWithRelations to JSON with arrays for authors/narrators
+                let books_json: Vec<serde_json::Value> = books.iter().map(|book| {
+                    serde_json::json!({
+                        "id": book.book_id,
+                        "audible_product_id": book.audible_product_id,
+                        "title": book.title,
+                        "subtitle": book.subtitle,
+                        "description": book.description,
+                        "duration_seconds": book.length_in_minutes * 60,
+                        "language": book.language,
+                        "rating": book.rating_overall,
+                        "cover_url": book.picture_large,
+                        "release_date": book.date_published,
+                        "purchase_date": book.purchase_date,
+                        "created_at": book.created_at,
+                        "updated_at": book.updated_at,
+                        "authors": book.authors_str.as_ref()
+                            .map(|s| s.split(", ").filter(|a| !a.is_empty()).collect::<Vec<_>>())
+                            .unwrap_or_default(),
+                        "narrators": book.narrators_str.as_ref()
+                            .map(|s| s.split(", ").filter(|n| !n.is_empty()).collect::<Vec<_>>())
+                            .unwrap_or_default(),
+                        "publisher": book.publisher,
+                        "series_name": book.series_name,
+                        "series_sequence": book.series_sequence,
+                        "file_path": null,
+                        "pdf_url": book.pdf_url,
+                        "is_finished": book.is_finished,
+                        "is_downloadable": book.is_downloadable,
+                        "is_ayce": book.is_ayce,
+                        "origin_asin": book.origin_asin,
+                        "episode_number": book.episode_number,
+                        "content_delivery_type": book.content_delivery_type,
+                        "is_abridged": book.is_abridged,
+                        "is_spatial": book.is_spatial,
+                    })
+                }).collect();
+
+                let response = serde_json::json!({
+                    "books": books_json,
+                    "total_count": total_count,
+                });
+
+                Ok::<_, crate::LibationError>(response)
+            })?;
+
+            Ok(success_response(result))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Get all unique series names from library
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "series": ["Harry Potter", "Lord of the Rings", ...]
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetAllSeries(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let result = RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let series = crate::storage::queries::list_all_series(db.pool()).await?;
+
+                let response = serde_json::json!({
+                    "series": series,
+                });
+
+                Ok::<_, crate::LibationError>(response)
+            })?;
+
+            Ok(success_response(result))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Get all unique categories/genres from library
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../libation.db"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "categories": ["Fantasy", "Science Fiction", ...]
+///   }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetAllCategories(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let result = RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let categories = crate::storage::queries::list_all_categories(db.pool()).await?;
+
+                let response = serde_json::json!({
+                    "categories": categories,
+                });
+
+                Ok::<_, crate::LibationError>(response)
+            })?;
+
+            Ok(success_response(result))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
 // ============================================================================
 // DOWNLOAD FUNCTIONS
 // ============================================================================

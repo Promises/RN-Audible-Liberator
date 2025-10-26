@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useRef} from 'react';
-import {View, Text, FlatList, TouchableOpacity, RefreshControl, Image, Alert, ActivityIndicator, Platform, PermissionsAndroid} from 'react-native';
+import {View, Text, FlatList, TouchableOpacity, RefreshControl, Image, Alert, ActivityIndicator, Platform, PermissionsAndroid, TextInput, Modal, ScrollView} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect} from '@react-navigation/native';
 import {useStyles} from '../hooks/useStyles';
@@ -7,6 +7,9 @@ import {useTheme} from '../styles/theme';
 import type {Theme} from '../hooks/useStyles';
 import {
     getBooks,
+    getBooksWithFilters,
+    getAllSeries,
+    getAllCategories,
     initializeDatabase,
     refreshToken,
     enqueueDownloadNew,
@@ -20,25 +23,75 @@ import {Paths} from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 
 const DOWNLOAD_PATH_KEY = 'download_path';
+const LIBRARY_PREFS_KEY = 'library_preferences';
+
+type SortField = 'title' | 'release_date' | 'date_added' | 'series';
+type SortDirection = 'asc' | 'desc';
+
+interface LibraryPreferences {
+    sortField: SortField;
+    sortDirection: SortDirection;
+}
 
 export default function LibraryScreen() {
     const styles = useStyles(createStyles);
     const { colors } = useTheme();
+
+    // Book data
     const [audiobooks, setAudiobooks] = useState<Book[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [totalCount, setTotalCount] = useState(0);
     const [hasMore, setHasMore] = useState(true);
+
+    // Download tracking
     const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map());
     const progressInterval = useRef<NodeJS.Timeout | null>(null);
 
-    // Load books from database on mount
+    // Search, filter, and sort state
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sortField, setSortField] = useState<SortField>('title');
+    const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+    const [selectedSeries, setSelectedSeries] = useState<string | null>(null);
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+    // Filter options
+    const [allSeries, setAllSeries] = useState<string[]>([]);
+    const [allCategories, setAllCategories] = useState<string[]>([]);
+
+    // Modal state
+    const [showFilterModal, setShowFilterModal] = useState(false);
+    const [showSortModal, setShowSortModal] = useState(false);
+
+    // Debounce search
+    const searchTimeout = useRef<NodeJS.Timeout | null>(null);
+
+    // Load saved preferences on mount
     useEffect(() => {
-        loadBooks(true);
+        loadPreferences();
+        loadFilterOptions();
     }, []);
 
-    // Reload books when tab is focused (e.g., after syncing from Account tab)
+    // Load books when filters change
+    useEffect(() => {
+        // Debounce search
+        if (searchTimeout.current) {
+            clearTimeout(searchTimeout.current);
+        }
+
+        searchTimeout.current = setTimeout(() => {
+            loadBooks(true);
+        }, 300);
+
+        return () => {
+            if (searchTimeout.current) {
+                clearTimeout(searchTimeout.current);
+            }
+        };
+    }, [searchQuery, sortField, sortDirection, selectedSeries, selectedCategory]);
+
+    // Reload books when tab is focused
     useFocusEffect(
         React.useCallback(() => {
             console.log('[LibraryScreen] Tab focused, reloading books...');
@@ -67,10 +120,7 @@ export default function LibraryScreen() {
             }
         };
 
-        // Initial poll
         pollProgress();
-
-        // Poll every 2 seconds
         progressInterval.current = setInterval(pollProgress, 2000);
 
         return () => {
@@ -80,6 +130,52 @@ export default function LibraryScreen() {
         };
     }, []);
 
+    const loadPreferences = async () => {
+        try {
+            const prefsJson = await SecureStore.getItemAsync(LIBRARY_PREFS_KEY);
+            if (prefsJson) {
+                const prefs: LibraryPreferences = JSON.parse(prefsJson);
+                setSortField(prefs.sortField);
+                setSortDirection(prefs.sortDirection);
+            }
+        } catch (error) {
+            console.error('[LibraryScreen] Error loading preferences:', error);
+        }
+    };
+
+    const savePreferences = async (field: SortField, direction: SortDirection) => {
+        try {
+            const prefs: LibraryPreferences = {
+                sortField: field,
+                sortDirection: direction,
+            };
+            await SecureStore.setItemAsync(LIBRARY_PREFS_KEY, JSON.stringify(prefs));
+        } catch (error) {
+            console.error('[LibraryScreen] Error saving preferences:', error);
+        }
+    };
+
+    const loadFilterOptions = async () => {
+        try {
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+            try {
+                initializeDatabase(dbPath);
+                const series = getAllSeries(dbPath);
+                const categories = getAllCategories(dbPath);
+
+                setAllSeries(series);
+                setAllCategories(categories);
+            } catch (error) {
+                console.log('[LibraryScreen] Database not ready yet');
+            }
+        } catch (error) {
+            console.error('[LibraryScreen] Error loading filter options:', error);
+        }
+    };
+
     const loadBooks = async (reset: boolean = false) => {
         try {
             const cacheUri = Paths.cache.uri;
@@ -88,7 +184,6 @@ export default function LibraryScreen() {
 
             console.log('[LibraryScreen] Loading books from:', dbPath);
 
-            // Initialize database first
             try {
                 initializeDatabase(dbPath);
             } catch (dbError) {
@@ -102,8 +197,27 @@ export default function LibraryScreen() {
             const offset = reset ? 0 : audiobooks.length;
             const limit = 100;
 
-            console.log('[LibraryScreen] Fetching books:', { offset, limit });
-            const response = getBooks(dbPath, offset, limit);
+            console.log('[LibraryScreen] Fetching books:', {
+                offset,
+                limit,
+                searchQuery,
+                sortField,
+                sortDirection,
+                selectedSeries,
+                selectedCategory,
+            });
+
+            const response = getBooksWithFilters(
+                dbPath,
+                offset,
+                limit,
+                searchQuery || null,
+                selectedSeries || null,
+                selectedCategory || null,
+                sortField,
+                sortDirection
+            );
+
             console.log('[LibraryScreen] Loaded books:', response.books.length, 'of', response.total_count);
 
             if (reset) {
@@ -142,6 +256,20 @@ export default function LibraryScreen() {
         }
     };
 
+    const handleSortChange = (field: SortField, direction: SortDirection) => {
+        setSortField(field);
+        setSortDirection(direction);
+        savePreferences(field, direction);
+        setShowSortModal(false);
+    };
+
+    const handleClearFilters = () => {
+        setSearchQuery('');
+        setSelectedSeries(null);
+        setSelectedCategory(null);
+        setShowFilterModal(false);
+    };
+
     const formatDuration = (seconds: number): string => {
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
@@ -150,7 +278,6 @@ export default function LibraryScreen() {
 
     const getCoverUrl = (book: Book): string | null => {
         if (!book.cover_url) return null;
-        // Replace _SL500_ with _SL150_ for smaller cover images
         return book.cover_url.replace(/_SL\d+_/, '_SL150_');
     };
 
@@ -205,14 +332,13 @@ export default function LibraryScreen() {
                     return false;
                 }
             }
-            return true; // Android < 13 doesn't need runtime permission
+            return true;
         }
-        return true; // iOS doesn't need this permission for foreground notifications
+        return true;
     };
 
     const handleDownload = async (book: Book) => {
         try {
-            // Request notification permission first
             const hasPermission = await requestNotificationPermission();
             if (!hasPermission) {
                 Alert.alert(
@@ -223,7 +349,6 @@ export default function LibraryScreen() {
                 return;
             }
 
-            // Get account from SecureStore
             const accountData = await SecureStore.getItemAsync('audible_account');
             if (!accountData) {
                 Alert.alert('Error', 'Please log in first');
@@ -232,7 +357,6 @@ export default function LibraryScreen() {
 
             let account: Account = JSON.parse(accountData);
 
-            // Check if token is expired and refresh if needed
             if (account.identity?.access_token) {
                 const expiresAt = new Date(account.identity.access_token.expires_at);
                 const now = new Date();
@@ -242,7 +366,6 @@ export default function LibraryScreen() {
                     console.log('[LibraryScreen] Token expiring soon, refreshing...');
                     try {
                         const newTokens = await refreshToken(account);
-                        // Update account with new tokens
                         account.identity.access_token.token = newTokens.access_token;
                         if (newTokens.refresh_token) {
                             account.identity.refresh_token = newTokens.refresh_token;
@@ -250,7 +373,6 @@ export default function LibraryScreen() {
                         const newExpiresAt = new Date(Date.now() + parseInt(newTokens.expires_in.toString()) * 1000).toISOString();
                         account.identity.access_token.expires_at = newExpiresAt;
 
-                        // Save updated account
                         await SecureStore.setItemAsync('audible_account', JSON.stringify(account));
                         console.log('[LibraryScreen] Token refreshed successfully');
                     } catch (refreshError) {
@@ -261,7 +383,6 @@ export default function LibraryScreen() {
                 }
             }
 
-            // Get download directory from settings
             const downloadDir = await SecureStore.getItemAsync(DOWNLOAD_PATH_KEY);
 
             if (!downloadDir) {
@@ -273,12 +394,10 @@ export default function LibraryScreen() {
                 return;
             }
 
-            console.log('[LibraryScreen] Enqueueing download via NEW system:', book.title, book.audible_product_id);
+            console.log('[LibraryScreen] Enqueueing download:', book.title, book.audible_product_id);
 
-            // Extract author from books array
             const author = (book.authors?.length || 0) > 0 ? book.authors.join(', ') : undefined;
 
-            // Enqueue download (runs in NEW background task system)
             await enqueueDownloadNew(
                 book.audible_product_id,
                 book.title,
@@ -288,7 +407,7 @@ export default function LibraryScreen() {
                 'High'
             );
 
-            console.log('[LibraryScreen] Download enqueued successfully via NEW system');
+            console.log('[LibraryScreen] Download enqueued successfully');
 
             Alert.alert(
                 'Download Started',
@@ -394,6 +513,11 @@ export default function LibraryScreen() {
                         <Text style={styles.author} numberOfLines={1}>
                             {authorText}
                         </Text>
+                        {item.series_name && (
+                            <Text style={styles.series} numberOfLines={1}>
+                                {item.series_name} {item.series_sequence ? `#${item.series_sequence}` : ''}
+                            </Text>
+                        )}
                         <View style={styles.metadata}>
                             <Text style={styles.duration}>{formatDuration(item.duration_seconds)}</Text>
                             <Text style={[styles.status, {color: status.color}]}>
@@ -402,7 +526,6 @@ export default function LibraryScreen() {
                         </View>
                     </View>
 
-                    {/* Show download button if not downloaded and no active task */}
                     {!isDownloaded && canDownload && (
                         <TouchableOpacity
                             style={styles.downloadButton}
@@ -412,7 +535,6 @@ export default function LibraryScreen() {
                         </TouchableOpacity>
                     )}
 
-                    {/* Show pause button if downloading */}
                     {isDownloading && (
                         <TouchableOpacity
                             style={styles.pauseButton}
@@ -422,7 +544,6 @@ export default function LibraryScreen() {
                         </TouchableOpacity>
                     )}
 
-                    {/* Show resume button if paused */}
                     {isPaused && (
                         <TouchableOpacity
                             style={styles.resumeButton}
@@ -432,7 +553,6 @@ export default function LibraryScreen() {
                         </TouchableOpacity>
                     )}
 
-                    {/* Show cancel button if downloading/queued/paused */}
                     {(isDownloading || isPaused || isQueued) && (
                         <TouchableOpacity
                             style={styles.cancelButton}
@@ -442,7 +562,6 @@ export default function LibraryScreen() {
                         </TouchableOpacity>
                     )}
 
-                    {/* Show spinner if queued */}
                     {isQueued && (
                         <View style={styles.downloadButton}>
                             <ActivityIndicator size="small" color={colors.textSecondary} />
@@ -453,10 +572,71 @@ export default function LibraryScreen() {
         );
     };
 
+    const getSortLabel = () => {
+        const fieldLabels = {
+            title: 'Title',
+            release_date: 'Release Date',
+            date_added: 'Date Added',
+            series: 'Series',
+        };
+        const arrow = sortDirection === 'asc' ? '↑' : '↓';
+        return `${fieldLabels[sortField]} ${arrow}`;
+    };
+
+    const getActiveFiltersCount = () => {
+        let count = 0;
+        if (selectedSeries) count++;
+        if (selectedCategory) count++;
+        return count;
+    };
+
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Library</Text>
+
+                {/* Search Bar */}
+                <View style={styles.searchContainer}>
+                    <Text style={styles.searchIcon}>🔍</Text>
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search titles, authors, narrators..."
+                        placeholderTextColor={colors.textSecondary}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        returnKeyType="search"
+                    />
+                    {searchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setSearchQuery('')}>
+                            <Text style={styles.clearIcon}>✕</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+
+                {/* Controls Row */}
+                <View style={styles.controlsRow}>
+                    <TouchableOpacity
+                        style={styles.controlButton}
+                        onPress={() => setShowSortModal(true)}
+                    >
+                        <Text style={styles.controlButtonText}>
+                            {getSortLabel()}
+                        </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[
+                            styles.controlButton,
+                            getActiveFiltersCount() > 0 && styles.controlButtonActive
+                        ]}
+                        onPress={() => setShowFilterModal(true)}
+                    >
+                        <Text style={styles.controlButtonText}>
+                            Filter {getActiveFiltersCount() > 0 ? `(${getActiveFiltersCount()})` : ''}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
                 <Text style={styles.headerSubtitle}>
                     {totalCount > 0 ? `${audiobooks.length} of ${totalCount} audiobooks` : `${audiobooks.length} audiobooks`}
                 </Text>
@@ -468,9 +648,15 @@ export default function LibraryScreen() {
                 </View>
             ) : audiobooks.length === 0 ? (
                 <View style={styles.emptyState}>
-                    <Text style={styles.emptyText}>No audiobooks yet</Text>
+                    <Text style={styles.emptyText}>
+                        {searchQuery || selectedSeries || selectedCategory
+                            ? 'No books match your search or filters'
+                            : 'No audiobooks yet'}
+                    </Text>
                     <Text style={styles.emptySubtext}>
-                        Go to Account tab to sign in and sync your Audible library
+                        {searchQuery || selectedSeries || selectedCategory
+                            ? 'Try adjusting your search or clearing filters'
+                            : 'Go to Account tab to sign in and sync your Audible library'}
                     </Text>
                 </View>
             ) : (
@@ -499,6 +685,157 @@ export default function LibraryScreen() {
                     }
                 />
             )}
+
+            {/* Sort Modal */}
+            <Modal
+                visible={showSortModal}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setShowSortModal(false)}
+            >
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowSortModal(false)}
+                >
+                    <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+                        <Text style={styles.modalTitle}>Sort By</Text>
+
+                        <TouchableOpacity
+                            style={styles.modalOption}
+                            onPress={() => handleSortChange('title', sortDirection === 'asc' ? 'desc' : 'asc')}
+                        >
+                            <Text style={styles.modalOptionText}>
+                                Title {sortField === 'title' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </Text>
+                            {sortField === 'title' && <Text style={styles.modalCheck}>✓</Text>}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.modalOption}
+                            onPress={() => handleSortChange('release_date', sortDirection === 'asc' ? 'desc' : 'asc')}
+                        >
+                            <Text style={styles.modalOptionText}>
+                                Release Date {sortField === 'release_date' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </Text>
+                            {sortField === 'release_date' && <Text style={styles.modalCheck}>✓</Text>}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.modalOption}
+                            onPress={() => handleSortChange('date_added', sortDirection === 'asc' ? 'desc' : 'asc')}
+                        >
+                            <Text style={styles.modalOptionText}>
+                                Date Added {sortField === 'date_added' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </Text>
+                            {sortField === 'date_added' && <Text style={styles.modalCheck}>✓</Text>}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.modalOption}
+                            onPress={() => handleSortChange('series', sortDirection === 'asc' ? 'desc' : 'asc')}
+                        >
+                            <Text style={styles.modalOptionText}>
+                                Series {sortField === 'series' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </Text>
+                            {sortField === 'series' && <Text style={styles.modalCheck}>✓</Text>}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.modalCancelButton}
+                            onPress={() => setShowSortModal(false)}
+                        >
+                            <Text style={styles.modalCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+
+            {/* Filter Modal */}
+            <Modal
+                visible={showFilterModal}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setShowFilterModal(false)}
+            >
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowFilterModal(false)}
+                >
+                    <View style={styles.modalContentLarge} onStartShouldSetResponder={() => true}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Filter</Text>
+                            <TouchableOpacity onPress={handleClearFilters}>
+                                <Text style={styles.clearFiltersText}>Clear All</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={styles.filterScroll}>
+                            {/* Series Filter */}
+                            <Text style={styles.filterSectionTitle}>Series</Text>
+                            <TouchableOpacity
+                                style={[
+                                    styles.filterOption,
+                                    !selectedSeries && styles.filterOptionSelected
+                                ]}
+                                onPress={() => setSelectedSeries(null)}
+                            >
+                                <Text style={styles.filterOptionText}>All Series</Text>
+                                {!selectedSeries && <Text style={styles.modalCheck}>✓</Text>}
+                            </TouchableOpacity>
+
+                            {allSeries.map((series) => (
+                                <TouchableOpacity
+                                    key={series}
+                                    style={[
+                                        styles.filterOption,
+                                        selectedSeries === series && styles.filterOptionSelected
+                                    ]}
+                                    onPress={() => setSelectedSeries(series)}
+                                >
+                                    <Text style={styles.filterOptionText}>{series}</Text>
+                                    {selectedSeries === series && <Text style={styles.modalCheck}>✓</Text>}
+                                </TouchableOpacity>
+                            ))}
+
+                            {/* Category Filter */}
+                            <Text style={styles.filterSectionTitle}>Genre</Text>
+                            <TouchableOpacity
+                                style={[
+                                    styles.filterOption,
+                                    !selectedCategory && styles.filterOptionSelected
+                                ]}
+                                onPress={() => setSelectedCategory(null)}
+                            >
+                                <Text style={styles.filterOptionText}>All Genres</Text>
+                                {!selectedCategory && <Text style={styles.modalCheck}>✓</Text>}
+                            </TouchableOpacity>
+
+                            {allCategories.map((category) => (
+                                <TouchableOpacity
+                                    key={category}
+                                    style={[
+                                        styles.filterOption,
+                                        selectedCategory === category && styles.filterOptionSelected
+                                    ]}
+                                    onPress={() => setSelectedCategory(category)}
+                                >
+                                    <Text style={styles.filterOptionText}>{category}</Text>
+                                    {selectedCategory === category && <Text style={styles.modalCheck}>✓</Text>}
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+
+                        <TouchableOpacity
+                            style={styles.modalApplyButton}
+                            onPress={() => setShowFilterModal(false)}
+                        >
+                            <Text style={styles.modalApplyText}>Apply Filters</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -515,10 +852,58 @@ const createStyles = (theme: Theme) => ({
     },
     headerTitle: {
         ...theme.typography.title,
+        marginBottom: theme.spacing.md,
+    },
+    searchContainer: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        backgroundColor: theme.colors.backgroundSecondary,
+        borderRadius: 8,
+        paddingHorizontal: theme.spacing.md,
+        marginBottom: theme.spacing.md,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+    },
+    searchIcon: {
+        fontSize: 16,
+        marginRight: theme.spacing.sm,
+    },
+    searchInput: {
+        flex: 1,
+        ...theme.typography.body,
+        color: theme.colors.text,
+        paddingVertical: theme.spacing.sm,
+    },
+    clearIcon: {
+        fontSize: 16,
+        color: theme.colors.textSecondary,
+        padding: theme.spacing.xs,
+    },
+    controlsRow: {
+        flexDirection: 'row' as const,
+        gap: theme.spacing.sm,
+        marginBottom: theme.spacing.sm,
+    },
+    controlButton: {
+        flex: 1,
+        backgroundColor: theme.colors.backgroundSecondary,
+        borderRadius: 8,
+        paddingVertical: theme.spacing.sm,
+        paddingHorizontal: theme.spacing.md,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        alignItems: 'center' as const,
+    },
+    controlButtonActive: {
+        borderColor: theme.colors.accent,
+        backgroundColor: theme.colors.accent + '20',
+    },
+    controlButtonText: {
+        ...theme.typography.caption,
+        fontWeight: '600' as const,
     },
     headerSubtitle: {
         ...theme.typography.caption,
-        marginTop: theme.spacing.xs,
     },
     list: {
         padding: theme.spacing.md,
@@ -562,6 +947,11 @@ const createStyles = (theme: Theme) => ({
     author: {
         ...theme.typography.caption,
     },
+    series: {
+        ...theme.typography.caption,
+        color: theme.colors.accent,
+        fontStyle: 'italic' as const,
+    },
     metadata: {
         flexDirection: 'row' as const,
         justifyContent: 'space-between' as const,
@@ -588,6 +978,7 @@ const createStyles = (theme: Theme) => ({
     emptyText: {
         ...theme.typography.subtitle,
         marginBottom: theme.spacing.sm,
+        textAlign: 'center' as const,
     },
     emptySubtext: {
         ...theme.typography.caption,
@@ -649,6 +1040,102 @@ const createStyles = (theme: Theme) => ({
     },
     cancelButtonText: {
         fontSize: 20,
+        color: theme.colors.background,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end' as const,
+    },
+    modalContent: {
+        backgroundColor: theme.colors.backgroundSecondary,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: theme.spacing.lg,
+        paddingBottom: theme.spacing.xl,
+    },
+    modalContentLarge: {
+        backgroundColor: theme.colors.backgroundSecondary,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: theme.spacing.lg,
+        paddingBottom: theme.spacing.xl,
+    },
+    modalHeader: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        marginBottom: theme.spacing.md,
+    },
+    modalTitle: {
+        ...theme.typography.title,
+        fontSize: 20,
+    },
+    clearFiltersText: {
+        ...theme.typography.body,
+        color: theme.colors.accent,
+    },
+    modalOption: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        paddingVertical: theme.spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.border,
+    },
+    modalOptionText: {
+        ...theme.typography.body,
+    },
+    modalCheck: {
+        ...theme.typography.body,
+        color: theme.colors.accent,
+        fontSize: 20,
+    },
+    modalCancelButton: {
+        marginTop: theme.spacing.lg,
+        padding: theme.spacing.md,
+        backgroundColor: theme.colors.background,
+        borderRadius: 8,
+        alignItems: 'center' as const,
+    },
+    modalCancelText: {
+        ...theme.typography.body,
+        fontWeight: '600' as const,
+    },
+    filterScroll: {
+        maxHeight: 400,
+    },
+    filterSectionTitle: {
+        ...theme.typography.subtitle,
+        marginTop: theme.spacing.lg,
+        marginBottom: theme.spacing.sm,
+        color: theme.colors.accent,
+    },
+    filterOption: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        paddingVertical: theme.spacing.sm,
+        paddingHorizontal: theme.spacing.md,
+        borderRadius: 8,
+        marginBottom: theme.spacing.xs,
+    },
+    filterOptionSelected: {
+        backgroundColor: theme.colors.accent + '20',
+    },
+    filterOptionText: {
+        ...theme.typography.body,
+    },
+    modalApplyButton: {
+        marginTop: theme.spacing.lg,
+        padding: theme.spacing.md,
+        backgroundColor: theme.colors.accent,
+        borderRadius: 8,
+        alignItems: 'center' as const,
+    },
+    modalApplyText: {
+        ...theme.typography.body,
+        fontWeight: '600' as const,
         color: theme.colors.background,
     },
 });

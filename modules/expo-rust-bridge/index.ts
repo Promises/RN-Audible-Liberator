@@ -389,6 +389,46 @@ export interface ExpoRustBridgeModule {
   searchBooks(dbPath: string, query: string): RustResponse<{ books: Book[] }>;
 
   /**
+   * Get books with advanced filtering, sorting, and search.
+   *
+   * @param dbPath - Absolute path to database file
+   * @param offset - Pagination offset
+   * @param limit - Maximum number of records to return
+   * @param searchQuery - Optional search query (searches title, author, narrator)
+   * @param seriesName - Optional series filter
+   * @param category - Optional category/genre filter
+   * @param sortField - Sort field: "title" | "release_date" | "date_added"
+   * @param sortDirection - Sort direction: "asc" | "desc"
+   * @returns Array of books and total count
+   */
+  getBooksWithFilters(
+    dbPath: string,
+    offset: number,
+    limit: number,
+    searchQuery?: string | null,
+    seriesName?: string | null,
+    category?: string | null,
+    sortField?: string | null,
+    sortDirection?: string | null
+  ): RustResponse<{ books: Book[]; total_count: number }>;
+
+  /**
+   * Get all unique series names from the library.
+   *
+   * @param dbPath - Absolute path to database file
+   * @returns Array of series names
+   */
+  getAllSeries(dbPath: string): RustResponse<{ series: string[] }>;
+
+  /**
+   * Get all unique categories/genres from the library.
+   *
+   * @param dbPath - Absolute path to database file
+   * @returns Array of category names
+   */
+  getAllCategories(dbPath: string): RustResponse<{ categories: string[] }>;
+
+  /**
    * Synchronize library from Audible API to local database.
    *
    * @param dbPath - Absolute path to database file
@@ -1131,6 +1171,64 @@ function getBooks(dbPath: string, offset: number, limit: number): { books: Book[
 }
 
 /**
+ * Get books with advanced filtering, sorting, and search.
+ *
+ * @param dbPath - Path to database file
+ * @param offset - Pagination offset
+ * @param limit - Maximum number of records to return
+ * @param searchQuery - Optional search query (searches title, author, narrator)
+ * @param seriesName - Optional series filter
+ * @param category - Optional category/genre filter
+ * @param sortField - Sort field: "title" | "release_date" | "date_added"
+ * @param sortDirection - Sort direction: "asc" | "desc"
+ * @returns Books and total count
+ */
+function getBooksWithFilters(
+  dbPath: string,
+  offset: number,
+  limit: number,
+  searchQuery?: string | null,
+  seriesName?: string | null,
+  category?: string | null,
+  sortField?: string | null,
+  sortDirection?: string | null
+): { books: Book[]; total_count: number } {
+  const response = NativeModule!.getBooksWithFilters(
+    dbPath,
+    offset,
+    limit,
+    searchQuery || null,
+    seriesName || null,
+    category || null,
+    sortField || null,
+    sortDirection || null
+  );
+  return unwrapResult(response);
+}
+
+/**
+ * Get all unique series names from the library.
+ *
+ * @param dbPath - Path to database file
+ * @returns Array of series names
+ */
+function getAllSeries(dbPath: string): string[] {
+  const response = NativeModule!.getAllSeries(dbPath);
+  return unwrapResult(response).series;
+}
+
+/**
+ * Get all unique categories/genres from the library.
+ *
+ * @param dbPath - Path to database file
+ * @returns Array of category names
+ */
+function getAllCategories(dbPath: string): string[] {
+  const response = NativeModule!.getAllCategories(dbPath);
+  return unwrapResult(response).categories;
+}
+
+/**
  * Get customer information from Audible API
  *
  * @param localeCode - Audible locale
@@ -1683,6 +1781,9 @@ export {
   syncLibrary,
   syncLibraryPage,
   getBooks,
+  getBooksWithFilters,
+  getAllSeries,
+  getAllCategories,
   getCustomerInformation,
   downloadAndDecryptBook,
   generateDeviceSerial,

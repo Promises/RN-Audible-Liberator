@@ -73,3 +73,4 @@ pub use models::{
     NewCategoryLadder, NewContributor, NewLibraryBook, NewSeries, NewUserDefinedItem, Rating,
     Role, Series, SeriesBook, Supplement, UserDefinedItem,
 };
+pub use queries::{BookQueryParams, SortDirection, SortField};

@@ -285,6 +285,320 @@ pub async fn count_books(pool: &SqlitePool) -> Result<i64> {
     Ok(count)
 }
 
+/// Sort options for book queries
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortField {
+    Title,
+    ReleaseDate,
+    DateAdded,
+    Series,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+/// Filter and search parameters for book queries
+#[derive(Debug, Clone, Default)]
+pub struct BookQueryParams {
+    pub search_query: Option<String>,  // Search in title, author, narrator
+    pub series_name: Option<String>,   // Filter by series
+    pub category: Option<String>,      // Filter by genre/category
+    pub sort_field: Option<SortField>,
+    pub sort_direction: Option<SortDirection>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// List books with relations, supporting search, filter, and sort
+pub async fn list_books_with_filters(
+    pool: &SqlitePool,
+    params: &BookQueryParams,
+) -> Result<Vec<BookWithRelations>> {
+    // Build the WHERE clause dynamically
+    let mut where_clauses = Vec::new();
+    let mut bind_values: Vec<String> = Vec::new();
+
+    // Search filter
+    if let Some(ref search) = params.search_query {
+        let pattern = format!("%{}%", search);
+        where_clauses.push(
+            "(b.title LIKE ? OR b.subtitle LIKE ? OR book_authors.authors LIKE ? \
+             OR book_narrators.narrators LIKE ?)"
+        );
+        bind_values.push(pattern.clone());
+        bind_values.push(pattern.clone());
+        bind_values.push(pattern.clone());
+        bind_values.push(pattern);
+    }
+
+    // Series filter
+    if let Some(ref series) = params.series_name {
+        where_clauses.push("book_series.series_name = ?");
+        bind_values.push(series.clone());
+    }
+
+    // Category filter
+    if let Some(ref category) = params.category {
+        where_clauses.push(
+            "EXISTS (SELECT 1 FROM BookCategories bc \
+             JOIN CategoryLadders cl ON bc.category_ladder_id = cl.category_ladder_id \
+             WHERE bc.book_id = b.book_id AND cl.ladder LIKE ?)"
+        );
+        bind_values.push(format!("%{}%", category));
+    }
+
+    let where_clause = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    // Build ORDER BY clause
+    let order_clause = match (params.sort_field, params.sort_direction) {
+        (Some(SortField::Title), Some(SortDirection::Asc)) => "ORDER BY b.title ASC",
+        (Some(SortField::Title), Some(SortDirection::Desc)) => "ORDER BY b.title DESC",
+        (Some(SortField::ReleaseDate), Some(SortDirection::Asc)) => "ORDER BY b.date_published ASC",
+        (Some(SortField::ReleaseDate), Some(SortDirection::Desc)) => "ORDER BY b.date_published DESC",
+        (Some(SortField::DateAdded), Some(SortDirection::Asc)) => "ORDER BY lb.date_added ASC",
+        (Some(SortField::DateAdded), Some(SortDirection::Desc)) => "ORDER BY lb.date_added DESC",
+        (Some(SortField::Series), Some(SortDirection::Asc)) => {
+            "ORDER BY CASE WHEN book_series_first.series_name IS NULL THEN 1 ELSE 0 END, book_series_first.series_name ASC, book_series_first.series_sequence ASC"
+        },
+        (Some(SortField::Series), Some(SortDirection::Desc)) => {
+            "ORDER BY CASE WHEN book_series_first.series_name IS NULL THEN 1 ELSE 0 END, book_series_first.series_name DESC, book_series_first.series_sequence DESC"
+        },
+        _ => "ORDER BY b.title ASC", // Default
+    };
+
+    // Build complete query
+    let query = format!(
+        r#"
+        WITH book_authors AS (
+            SELECT
+                bc.book_id,
+                GROUP_CONCAT(c.name, ', ') as authors
+            FROM BookContributors bc
+            JOIN Contributors c ON bc.contributor_id = c.contributor_id
+            WHERE bc.role = 1
+            GROUP BY bc.book_id
+        ),
+        book_narrators AS (
+            SELECT
+                bc.book_id,
+                GROUP_CONCAT(c.name, ', ') as narrators
+            FROM BookContributors bc
+            JOIN Contributors c ON bc.contributor_id = c.contributor_id
+            WHERE bc.role = 2
+            GROUP BY bc.book_id
+        ),
+        book_publishers AS (
+            SELECT
+                bc.book_id,
+                c.name as publisher
+            FROM BookContributors bc
+            JOIN Contributors c ON bc.contributor_id = c.contributor_id
+            WHERE bc.role = 3
+            LIMIT 1
+        ),
+        book_series AS (
+            SELECT
+                sb.book_id,
+                s.name as series_name,
+                sb."index" as series_sequence,
+                ROW_NUMBER() OVER (PARTITION BY sb.book_id ORDER BY sb."index", s.name) as rn
+            FROM SeriesBooks sb
+            JOIN Series s ON sb.series_id = s.series_id
+        ),
+        book_series_first AS (
+            SELECT book_id, series_name, series_sequence
+            FROM book_series
+            WHERE rn = 1
+        )
+        SELECT
+            b.book_id,
+            b.audible_product_id,
+            b.title,
+            b.subtitle,
+            b.description,
+            b.length_in_minutes,
+            b.content_type,
+            b.locale,
+            b.picture_id,
+            b.picture_large,
+            b.is_abridged,
+            b.is_spatial,
+            b.date_published,
+            b.language,
+            b.rating_overall,
+            b.rating_performance,
+            b.rating_story,
+            b.pdf_url,
+            b.is_finished,
+            b.is_downloadable,
+            b.is_ayce,
+            b.origin_asin,
+            b.episode_number,
+            b.content_delivery_type,
+            b.created_at,
+            b.updated_at,
+            book_authors.authors as authors_str,
+            book_narrators.narrators as narrators_str,
+            book_publishers.publisher,
+            book_series_first.series_name,
+            book_series_first.series_sequence,
+            lb.date_added as purchase_date
+        FROM Books b
+        LEFT JOIN LibraryBooks lb ON b.book_id = lb.book_id
+        LEFT JOIN book_authors ON b.book_id = book_authors.book_id
+        LEFT JOIN book_narrators ON b.book_id = book_narrators.book_id
+        LEFT JOIN book_publishers ON b.book_id = book_publishers.book_id
+        LEFT JOIN book_series_first ON b.book_id = book_series_first.book_id
+        {}
+        {}
+        LIMIT ? OFFSET ?
+        "#,
+        where_clause,
+        order_clause
+    );
+
+    // Build query with bindings
+    let mut q = sqlx::query_as::<_, BookWithRelations>(&query);
+
+    for value in bind_values {
+        q = q.bind(value);
+    }
+
+    q = q.bind(params.limit).bind(params.offset);
+
+    let books = q.fetch_all(pool).await?;
+
+    Ok(books)
+}
+
+/// Count books matching filter criteria
+pub async fn count_books_with_filters(
+    pool: &SqlitePool,
+    params: &BookQueryParams,
+) -> Result<i64> {
+    // Build the WHERE clause dynamically
+    let mut where_clauses = Vec::new();
+    let mut bind_values: Vec<String> = Vec::new();
+
+    // Search filter
+    if let Some(ref search) = params.search_query {
+        let pattern = format!("%{}%", search);
+        where_clauses.push(
+            "(b.title LIKE ? OR b.subtitle LIKE ? OR book_authors.authors LIKE ? \
+             OR book_narrators.narrators LIKE ?)"
+        );
+        bind_values.push(pattern.clone());
+        bind_values.push(pattern.clone());
+        bind_values.push(pattern.clone());
+        bind_values.push(pattern);
+    }
+
+    // Series filter
+    if let Some(ref series) = params.series_name {
+        where_clauses.push("book_series.series_name = ?");
+        bind_values.push(series.clone());
+    }
+
+    // Category filter
+    if let Some(ref category) = params.category {
+        where_clauses.push(
+            "EXISTS (SELECT 1 FROM BookCategories bc \
+             JOIN CategoryLadders cl ON bc.category_ladder_id = cl.category_ladder_id \
+             WHERE bc.book_id = b.book_id AND cl.ladder LIKE ?)"
+        );
+        bind_values.push(format!("%{}%", category));
+    }
+
+    let where_clause = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let query = format!(
+        r#"
+        WITH book_authors AS (
+            SELECT
+                bc.book_id,
+                GROUP_CONCAT(c.name, ', ') as authors
+            FROM BookContributors bc
+            JOIN Contributors c ON bc.contributor_id = c.contributor_id
+            WHERE bc.role = 1
+            GROUP BY bc.book_id
+        ),
+        book_narrators AS (
+            SELECT
+                bc.book_id,
+                GROUP_CONCAT(c.name, ', ') as narrators
+            FROM BookContributors bc
+            JOIN Contributors c ON bc.contributor_id = c.contributor_id
+            WHERE bc.role = 2
+            GROUP BY bc.book_id
+        ),
+        book_series AS (
+            SELECT
+                sb.book_id,
+                s.name as series_name
+            FROM SeriesBooks sb
+            JOIN Series s ON sb.series_id = s.series_id
+        )
+        SELECT COUNT(DISTINCT b.book_id)
+        FROM Books b
+        LEFT JOIN LibraryBooks lb ON b.book_id = lb.book_id
+        LEFT JOIN book_authors ON b.book_id = book_authors.book_id
+        LEFT JOIN book_narrators ON b.book_id = book_narrators.book_id
+        LEFT JOIN book_series ON b.book_id = book_series.book_id
+        {}
+        "#,
+        where_clause
+    );
+
+    let mut q = sqlx::query_scalar::<_, i64>(&query);
+
+    for value in bind_values {
+        q = q.bind(value);
+    }
+
+    let count = q.fetch_one(pool).await?;
+
+    Ok(count)
+}
+
+/// Get all unique series names from the library
+pub async fn list_all_series(pool: &SqlitePool) -> Result<Vec<String>> {
+    let series: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT s.name FROM Series s \
+         JOIN SeriesBooks sb ON s.series_id = sb.series_id \
+         ORDER BY s.name"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(series)
+}
+
+/// Get all unique categories/genres from the library
+pub async fn list_all_categories(pool: &SqlitePool) -> Result<Vec<String>> {
+    let categories: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT c.name FROM Categories c \
+         JOIN CategoryLadders cl ON c.audible_category_id = cl.ladder \
+         JOIN BookCategories bc ON cl.category_ladder_id = bc.category_ladder_id \
+         WHERE c.name IS NOT NULL \
+         ORDER BY c.name"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(categories)
+}
+
 /// Search books by title
 pub async fn search_books_by_title(pool: &SqlitePool, query: &str, limit: i64) -> Result<Vec<Book>> {
     let search_pattern = format!("%{}%", query);

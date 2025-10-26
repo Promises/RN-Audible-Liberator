@@ -1366,19 +1366,11 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeDownlo
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             let result = RUNTIME.block_on(async {
-                // Create temporary database connection for token refresh
-                // TODO: Accept db_path in params to avoid creating temporary in-memory DB
-                let temp_db = crate::storage::Database::new_in_memory().await?;
-
-                // Ensure token is valid before making API calls
-                let account_json = crate::api::auth::ensure_valid_token(
-                    temp_db.pool(),
-                    &params.account_json,
-                    30, // Refresh if expiring within 30 minutes
-                ).await?;
+                // TODO: Add ensure_valid_token() here once we pass db_path in params
+                // For now, WorkManager backup handles token refresh
 
                 // Parse account
-                let account: crate::api::auth::Account = serde_json::from_str(&account_json)
+                let account: crate::api::auth::Account = serde_json::from_str(&params.account_json)
                     .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
 
                 // Parse quality
@@ -1563,18 +1555,10 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetDow
                 .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
             let result = RUNTIME.block_on(async {
-                // Create temporary database connection for token refresh
-                // TODO: Accept db_path in params to avoid creating temporary in-memory DB
-                let temp_db = crate::storage::Database::new_in_memory().await?;
+                // TODO: Add ensure_valid_token() here once we pass db_path in params
+                // For now, WorkManager backup handles token refresh
 
-                // Ensure token is valid before making API calls
-                let account_json = crate::api::auth::ensure_valid_token(
-                    temp_db.pool(),
-                    &params.account_json,
-                    30, // Refresh if expiring within 30 minutes
-                ).await?;
-
-                let account: crate::api::auth::Account = serde_json::from_str(&account_json)
+                let account: crate::api::auth::Account = serde_json::from_str(&params.account_json)
                     .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid account JSON: {}", e)))?;
 
                 let quality = match params.quality.as_str() {

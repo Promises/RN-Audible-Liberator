@@ -75,3 +75,7 @@ tests/fixtures/test_account.json
 *.aax
 *.aaxc
 /native/rust-core/test_fixtures/
+
+# Development/testing tools
+test-workers.sh
+src/screens/TaskDebugScreen.tsx

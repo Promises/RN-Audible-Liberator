@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Updates from 'expo-updates';
 import { useStyles } from '../hooks/useStyles';
 import { useTheme } from '../styles/theme';
 import type { Theme } from '../hooks/useStyles';
@@ -121,10 +122,23 @@ export default function SettingsScreen() {
         await SecureStore.setItemAsync(DEBUG_MODE_KEY, 'true');
         tapTimestamps.current = [];
         setTapCount(0);
+
         Alert.alert(
           'Debug Mode Enabled',
-          'The Debug tab will appear after restarting the app.',
-          [{ text: 'OK' }]
+          'The app will reload to show the Debug tab.',
+          [
+            {
+              text: 'OK',
+              onPress: async () => {
+                try {
+                  await Updates.reloadAsync();
+                } catch (error) {
+                  console.error('[Settings] Failed to reload app:', error);
+                  Alert.alert('Please restart the app manually to see the Debug tab.');
+                }
+              }
+            }
+          ]
         );
       } catch (error) {
         console.error('[Settings] Failed to enable debug mode:', error);

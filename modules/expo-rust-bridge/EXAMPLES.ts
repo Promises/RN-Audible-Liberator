@@ -317,103 +317,6 @@ export class LibraryManager {
 }
 
 // ============================================================================
-// Example 5: Download and Decrypt
-// ============================================================================
-
-export class AudiobookManager {
-  /**
-   * Download audiobook from Audible
-   */
-  async downloadBook(
-    account: Account,
-    asin: string,
-    outputPath: string,
-    dbPath: string,
-    quality: string = 'High'
-  ): Promise<string> {
-    try {
-      console.log(`Downloading book ${asin}...`);
-
-      const accountJson = JSON.stringify(account);
-      const response = await ExpoRustBridge!.downloadBook(
-        accountJson,
-        asin,
-        outputPath,
-        quality,
-        dbPath  // For metadata embedding
-      );
-
-      const { outputPath: filePath } = unwrapResult(response);
-
-      console.log(`Download complete: ${filePath}`);
-      return filePath;
-    } catch (error) {
-      if (error instanceof RustBridgeError) {
-        console.error('Download failed:', error.rustError);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Decrypt AAX file to M4B
-   */
-  async decryptBook(
-    inputPath: string,
-    outputPath: string,
-    activationBytes: string
-  ): Promise<string> {
-    try {
-      // Validate activation bytes first
-      const validationResponse = ExpoRustBridge!.validateActivationBytes(activationBytes);
-      const { valid } = unwrapResult(validationResponse);
-
-      if (!valid) {
-        throw new Error('Invalid activation bytes format');
-      }
-
-      console.log(`Decrypting ${inputPath}...`);
-
-      const response = await ExpoRustBridge!.decryptAAX(
-        inputPath,
-        outputPath,
-        activationBytes
-      );
-
-      const { output_path } = unwrapResult(response);
-
-      console.log(`Decryption complete: ${output_path}`);
-      return output_path;
-    } catch (error) {
-      if (error instanceof RustBridgeError) {
-        console.error('Decryption failed:', error.rustError);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Complete download and decrypt workflow
-   */
-  async downloadAndDecrypt(
-    account: Account,
-    asin: string,
-    outputPath: string,
-    dbPath: string,
-    quality: string = 'High'
-  ): Promise<string> {
-    try {
-      // Download encrypted file AND decrypt in one call (with metadata embedding)
-      const filePath = await this.downloadBook(account, asin, outputPath, dbPath, quality);
-      return filePath;
-    } catch (error) {
-      console.error('Download and decrypt failed:', error);
-      throw error;
-    }
-  }
-}
-
-// ============================================================================
 // Example 6: Error Handling Patterns
 // ============================================================================
 
@@ -520,25 +423,6 @@ export async function completeWorkflowExample(
     console.log('\n5. Searching books...');
     const searchResults = library.searchBooks('harry potter');
     console.log(`Found ${searchResults.length} matching books`);
-
-    // Step 6: Download and decrypt (example for first book)
-    if (books.length > 0 && account.decrypt_key) {
-      console.log('\n6. Processing audiobook...');
-      const book = books[0];
-      const audiobookManager = new AudiobookManager();
-
-      // Note: You would need actual license data from Audible API
-      const license = { /* license data */ };
-
-      const m4bPath = await audiobookManager.downloadAndDecrypt(
-        account,
-        book.audible_product_id,
-        `/path/to/output/`,
-        'High'
-      );
-
-      console.log(`Book processed: ${m4bPath}`);
-    }
 
     console.log('\n=== Workflow Complete ===');
   } catch (error) {

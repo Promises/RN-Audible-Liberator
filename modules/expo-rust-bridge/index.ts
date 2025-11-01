@@ -467,52 +467,6 @@ export interface ExpoRustBridgeModule {
   syncLibraryPage(dbPath: string, accountJson: string, page: number): Promise<RustResponse<SyncStats>>;
 
   // --------------------------------------------------------------------------
-  // Download & Decryption
-  // --------------------------------------------------------------------------
-
-  /**
-   * Download and decrypt an audiobook (complete pipeline).
-   *
-   * This function handles the entire process:
-   * 1. Rust downloads encrypted AAXC file to cache and extracts decryption keys
-   * 2. Kotlin decrypts using FFmpeg-Kit (16KB page size compatible)
-   * 3. Kotlin copies to user's chosen directory (handles SAF URIs via DocumentFile)
-   * 4. Kotlin cleans up cache files
-   * 5. Returns final decrypted file path with duration
-   *
-   * @param accountJson - JSON-serialized Account object with identity
-   * @param asin - Audible product ID (ASIN)
-   * @param outputDirectory - Directory to save M4B file (supports content:// SAF URIs)
-   * @param quality - Download quality ("Low", "Normal", "High", "Extreme")
-   * @returns Final file path, size, and duration
-   */
-  downloadBook(
-    accountJson: string,
-    asin: string,
-    outputDirectory: string,
-    quality: string,
-    dbPath: string
-  ): Promise<RustResponse<{
-    outputPath: string;
-    fileSize: number;
-    duration: number;
-  }>>;
-
-  /**
-   * Decrypt AAX audiobook to M4B format.
-   *
-   * @param inputPath - Path to encrypted AAX file
-   * @param outputPath - Path for decrypted M4B file
-   * @param activationBytes - 8-character hex activation bytes
-   * @returns Path to decrypted file
-   */
-  decryptAAX(
-    inputPath: string,
-    outputPath: string,
-    activationBytes: string
-  ): Promise<RustResponse<{ output_path: string }>>;
-
-  // --------------------------------------------------------------------------
   // Utilities
   // --------------------------------------------------------------------------
 
@@ -1282,61 +1236,6 @@ async function syncLibraryPage(dbPath: string, account: Account, page: number): 
 }
 
 /**
- * Download and decrypt an audiobook (complete pipeline).
- *
- * This is a high-level helper that handles the entire download+decrypt workflow:
- * 1. Request download license from Audible
- * 2. Download encrypted AAXC file
- * 3. Extract decryption keys
- * 4. Decrypt to playable M4B using FFmpeg-Kit
- * 5. Get duration and metadata
- * 6. Delete encrypted file (save space)
- *
- * @param account - Account with authentication
- * @param asin - Book ASIN to download
- * @param outputDirectory - Directory to save M4B file
- * @param quality - Download quality (defaults to "High")
- * @returns Download result with file path, size, and duration
- * @throws {RustBridgeError} If download or decryption fails
- *
- * @example
- * ```typescript
- * const result = await downloadAndDecryptBook(
- *   account,
- *   'B07T2F8VJM',
- *   '/storage/audiobooks',
- *   'High'
- * );
- * console.log(`Downloaded to: ${result.outputPath}`);
- * console.log(`Duration: ${result.duration / 3600} hours`);
- * ```
- */
-async function downloadAndDecryptBook(
-  account: Account,
-  asin: string,
-  outputDirectory: string,
-  quality: string = 'High',
-  dbPath: string
-): Promise<{ outputPath: string; fileSize: number; duration: number }> {
-  const accountJson = JSON.stringify(account);
-
-  // Kotlin handles the entire pipeline:
-  // 1. Rust downloads encrypted .aax to cache and fetches metadata from db
-  // 2. Kotlin decrypts with FFmpeg-Kit and embeds metadata (title, author, narrator, ASIN, etc.)
-  // 3. Kotlin copies to user's directory (if SAF URI)
-  // 4. Kotlin cleans up cache files
-  const response = await NativeModule!.downloadBook(
-    accountJson,
-    asin,
-    outputDirectory,
-    quality,
-    dbPath
-  );
-
-  return unwrapResult(response);
-}
-
-/**
  * Enqueue a download using the persistent download manager.
  *
  * This starts a background download that can be paused, resumed, and monitored.
@@ -1814,7 +1713,6 @@ export {
   getAllSeries,
   getAllCategories,
   getCustomerInformation,
-  downloadAndDecryptBook,
   generateDeviceSerial,
   unwrapResult,
   RustBridgeError,

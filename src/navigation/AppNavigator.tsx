@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
+import * as SecureStore from 'expo-secure-store';
 import { useTheme } from '../styles/theme';
 
 import LibraryScreen from '../screens/LibraryScreen';
@@ -10,9 +12,28 @@ import SettingsScreen from '../screens/SettingsScreen';
 import TaskDebugScreen from '../screens/TaskDebugScreen';
 
 const Tab = createBottomTabNavigator();
+const DEBUG_MODE_KEY = 'debug_mode_enabled';
 
 export default function AppNavigator() {
   const { colors } = useTheme();
+  const [enableDebugScreen, setEnableDebugScreen] = useState<boolean>(
+    Constants.expoConfig?.extra?.enableDebugScreen ?? __DEV__
+  );
+
+  // Check if debug mode is enabled via SecureStore (secret activation)
+  useEffect(() => {
+    const checkDebugMode = async () => {
+      try {
+        const debugEnabled = await SecureStore.getItemAsync(DEBUG_MODE_KEY);
+        if (debugEnabled === 'true') {
+          setEnableDebugScreen(true);
+        }
+      } catch (error) {
+        console.error('[AppNavigator] Failed to check debug mode:', error);
+      }
+    };
+    checkDebugMode();
+  }, []);
 
   return (
     <NavigationContainer>
@@ -69,17 +90,19 @@ export default function AppNavigator() {
             ),
           }}
         />
-        <Tab.Screen
-          name="Debug"
-          component={TaskDebugScreen}
-          options={{
-            tabBarLabel: 'Debug',
-            headerShown: false,
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="bug" size={size} color={color} />
-            ),
-          }}
-        />
+        {enableDebugScreen && (
+          <Tab.Screen
+            name="Debug"
+            component={TaskDebugScreen}
+            options={{
+              tabBarLabel: 'Debug',
+              headerShown: false,
+              tabBarIcon: ({ color, size }) => (
+                <Ionicons name="bug" size={size} color={color} />
+              ),
+            }}
+          />
+        )}
       </Tab.Navigator>
     </NavigationContainer>
   );

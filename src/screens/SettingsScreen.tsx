@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStyles } from '../hooks/useStyles';
@@ -19,6 +19,7 @@ const NAMING_PATTERN_KEY = 'naming_pattern';
 const SYNC_FREQUENCY_KEY = 'sync_frequency';
 const SYNC_WIFI_ONLY_KEY = 'sync_wifi_only';
 const AUTO_TOKEN_REFRESH_KEY = 'auto_token_refresh';
+const DEBUG_MODE_KEY = 'debug_mode_enabled';
 
 type SyncFrequency = 'manual' | '1h' | '6h' | '12h' | '24h';
 type NamingPattern = 'flat_file' | 'author_book_folder' | 'author_series_book';
@@ -34,6 +35,10 @@ export default function SettingsScreen() {
   const [syncFrequency, setSyncFrequency] = useState<SyncFrequency>('manual');
   const [syncWifiOnly, setSyncWifiOnly] = useState(true);
   const [autoTokenRefresh, setAutoTokenRefresh] = useState(true);
+
+  // Secret debug mode activation
+  const tapTimestamps = useRef<number[]>([]);
+  const [tapCount, setTapCount] = useState(0);
 
   // Load saved settings on mount
   useEffect(() => {
@@ -96,6 +101,34 @@ export default function SettingsScreen() {
     } catch (error: any) {
       console.error('[Settings] Directory picker error:', error);
       Alert.alert('Error', error.message || 'Failed to select directory');
+    }
+  };
+
+  const handleVersionTap = async () => {
+    const now = Date.now();
+    const thirtySecondsAgo = now - 30000;
+
+    // Remove taps older than 30 seconds
+    const recentTaps = tapTimestamps.current.filter(timestamp => timestamp > thirtySecondsAgo);
+    recentTaps.push(now);
+    tapTimestamps.current = recentTaps;
+
+    setTapCount(recentTaps.length);
+
+    if (recentTaps.length >= 10) {
+      // Enable debug mode
+      try {
+        await SecureStore.setItemAsync(DEBUG_MODE_KEY, 'true');
+        tapTimestamps.current = [];
+        setTapCount(0);
+        Alert.alert(
+          'Debug Mode Enabled',
+          'The Debug tab will appear after restarting the app.',
+          [{ text: 'OK' }]
+        );
+      } catch (error) {
+        console.error('[Settings] Failed to enable debug mode:', error);
+      }
     }
   };
 
@@ -526,10 +559,16 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
 
-          <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={handleVersionTap}
+            activeOpacity={0.7}
+          >
             <Text style={styles.cardLabel}>Version</Text>
-            <Text style={styles.cardValue}>1.0.0</Text>
-          </View>
+            <Text style={styles.cardValue}>
+              1.0.0 {tapCount > 0 && tapCount < 10 && `(${tapCount}/10)`}
+            </Text>
+          </TouchableOpacity>
 
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Based on</Text>

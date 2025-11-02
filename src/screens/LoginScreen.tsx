@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, Alert, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import {
@@ -18,12 +18,34 @@ interface LoginScreenProps {
   onLoginSuccess: (account: Account) => void;
 }
 
+interface Region {
+  code: string;
+  name: string;
+  domain: string;
+  flag: string;
+}
+
+const REGIONS: Region[] = [
+  { code: 'us', name: 'United States', domain: 'audible.com', flag: '🇺🇸' },
+  { code: 'uk', name: 'United Kingdom', domain: 'audible.co.uk', flag: '🇬🇧' },
+  { code: 'de', name: 'Germany', domain: 'audible.de', flag: '🇩🇪' },
+  { code: 'fr', name: 'France', domain: 'audible.fr', flag: '🇫🇷' },
+  { code: 'ca', name: 'Canada', domain: 'audible.ca', flag: '🇨🇦' },
+  { code: 'au', name: 'Australia', domain: 'audible.com.au', flag: '🇦🇺' },
+  { code: 'it', name: 'Italy', domain: 'audible.it', flag: '🇮🇹' },
+  { code: 'es', name: 'Spain', domain: 'audible.es', flag: '🇪🇸' },
+  { code: 'in', name: 'India', domain: 'audible.in', flag: '🇮🇳' },
+  { code: 'jp', name: 'Japan', domain: 'audible.co.jp', flag: '🇯🇵' },
+  { code: 'br', name: 'Brazil', domain: 'audible.com.br', flag: '🇧🇷' },
+];
+
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const styles = useStyles(createStyles);
-  const { colors } = useTheme();
+  const { colors, spacing } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
-  const [status, setStatus] = useState('Preparing login...');
+  const [status, setStatus] = useState('Select your Audible region');
+  const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
 
   const oauthDataRef = useRef<{
     pkceVerifier: string;
@@ -33,13 +55,13 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   } | null>(null);
 
   // Initiate OAuth flow
-  const startOAuthFlow = async (localeCode: string = 'us') => {
+  const startOAuthFlow = async (region: Region) => {
     try {
       setIsLoading(true);
       setStatus('Generating OAuth URL...');
-      console.log('[LoginScreen] Starting OAuth flow for locale:', localeCode);
+      console.log('[LoginScreen] Starting OAuth flow for region:', region.name, '(' + region.code + ')');
 
-      const flowData = initiateOAuth(localeCode);
+      const flowData = initiateOAuth(region.code);
       console.log('[LoginScreen] OAuth URL generated:', flowData.url);
       console.log('[LoginScreen] Device serial:', flowData.deviceSerial);
 
@@ -47,7 +69,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         pkceVerifier: flowData.pkceVerifier,
         state: flowData.state,
         deviceSerial: flowData.deviceSerial,
-        localeCode,
+        localeCode: region.code,
       };
 
       setOauthUrl(flowData.url);
@@ -61,6 +83,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           ? error.message
           : 'Failed to start login process'
       );
+      setSelectedRegion(null);
+      setOauthUrl(null);
     } finally {
       setIsLoading(false);
     }
@@ -194,16 +218,38 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     }
   };
 
-  // Start OAuth flow on mount
-  React.useEffect(() => {
-    console.log('[LoginScreen] Component mounted, starting OAuth flow');
-    startOAuthFlow();
-  }, []);
+  const handleRegionSelect = (region: Region) => {
+    setSelectedRegion(region);
+    startOAuthFlow(region);
+  };
+
+  const handleBackToRegionPicker = () => {
+    console.log('[LoginScreen] User cancelled login, returning to region picker');
+    setOauthUrl(null);
+    setSelectedRegion(null);
+    setIsProcessingCallback(false);
+    setStatus('Select your Audible region');
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {oauthUrl ? (
         <>
+          <View style={styles.webViewHeader}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={handleBackToRegionPicker}
+            >
+              <Text style={styles.backButtonText}>← Back</Text>
+            </TouchableOpacity>
+            {selectedRegion && (
+              <View style={styles.regionInfo}>
+                <Text style={styles.regionInfoText}>
+                  {selectedRegion.flag} {selectedRegion.name}
+                </Text>
+              </View>
+            )}
+          </View>
           <WebView
             source={{ uri: oauthUrl }}
             onNavigationStateChange={handleNavigationStateChange}
@@ -225,10 +271,31 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           )}
         </>
       ) : (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={styles.statusText}>{status}</Text>
-        </View>
+        <ScrollView contentContainerStyle={styles.regionPickerContainer}>
+          <Text style={styles.title}>Log in to Audible</Text>
+          <Text style={styles.subtitle}>Select your region to continue</Text>
+
+          <View style={styles.regionGrid}>
+            {REGIONS.map((region) => (
+              <TouchableOpacity
+                key={region.code}
+                style={styles.regionCard}
+                onPress={() => handleRegionSelect(region)}
+                disabled={isLoading}
+              >
+                <Text style={styles.regionName}>{region.flag} {region.name}</Text>
+                <Text style={styles.regionDomain}>{region.domain}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {isLoading && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.accent} />
+              <Text style={styles.statusText}>{status}</Text>
+            </View>
+          )}
+        </ScrollView>
       )}
     </SafeAreaView>
   );
@@ -236,35 +303,13 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
 // Helper functions for locale info
 function getLocaleName(code: string): string {
-  const names: Record<string, string> = {
-    us: 'United States',
-    uk: 'United Kingdom',
-    de: 'Germany',
-    fr: 'France',
-    ca: 'Canada',
-    au: 'Australia',
-    it: 'Italy',
-    es: 'Spain',
-    in: 'India',
-    jp: 'Japan',
-  };
-  return names[code] || code.toUpperCase();
+  const region = REGIONS.find(r => r.code === code);
+  return region ? region.name : code.toUpperCase();
 }
 
 function getLocaleDomain(code: string): string {
-  const domains: Record<string, string> = {
-    us: 'audible.com',
-    uk: 'audible.co.uk',
-    de: 'audible.de',
-    fr: 'audible.fr',
-    ca: 'audible.ca',
-    au: 'audible.com.au',
-    it: 'audible.it',
-    es: 'audible.es',
-    in: 'audible.in',
-    jp: 'audible.co.jp',
-  };
-  return domains[code] || 'audible.com';
+  const region = REGIONS.find(r => r.code === code);
+  return region ? region.domain : 'audible.com';
 }
 
 const createStyles = (theme: Theme) => ({
@@ -272,14 +317,77 @@ const createStyles = (theme: Theme) => ({
     flex: 1,
     backgroundColor: theme.colors.background,
   },
+  webViewHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  backButton: {
+    padding: theme.spacing.sm,
+    marginRight: theme.spacing.md,
+  },
+  backButtonText: {
+    ...theme.typography.body,
+    color: theme.colors.accent,
+    fontWeight: '600' as const,
+  },
+  regionInfo: {
+    flex: 1,
+    alignItems: 'center' as const,
+  },
+  regionInfoText: {
+    ...theme.typography.body,
+    fontWeight: '600' as const,
+  },
   webView: {
     flex: 1,
   },
-  centered: {
-    flex: 1,
-    justifyContent: 'center' as const,
-    alignItems: 'center' as const,
+  regionPickerContainer: {
+    flexGrow: 1,
     padding: theme.spacing.lg,
+  },
+  title: {
+    ...theme.typography.title,
+    marginBottom: theme.spacing.sm,
+    textAlign: 'center' as const,
+  },
+  subtitle: {
+    ...theme.typography.body,
+    textAlign: 'center' as const,
+    marginBottom: theme.spacing.xl,
+    color: theme.colors.textSecondary,
+  },
+  regionGrid: {
+    gap: theme.spacing.md,
+  },
+  regionCard: {
+    backgroundColor: theme.colors.backgroundSecondary,
+    padding: theme.spacing.lg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center' as const,
+    gap: theme.spacing.xs,
+  },
+  // regionFlag: {
+  //   fontSize: 40,
+  //   marginBottom: theme.spacing.xs,
+  // },
+  regionName: {
+    ...theme.typography.body,
+    fontWeight: '600' as const,
+    textAlign: 'center' as const,
+  },
+  regionDomain: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+  },
+  loadingContainer: {
+    marginTop: theme.spacing.xl,
+    alignItems: 'center' as const,
   },
   loadingOverlay: {
     position: 'absolute' as const,

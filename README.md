@@ -142,15 +142,6 @@ cargo test --manifest-path native/rust-core/Cargo.toml
 - ✅ C FFI bridge (iOS) - compiled and ready
 - ✅ Cross-compilation build scripts
 
-## Next Steps
-
-1. ✅ ~~OAuth authentication~~ **COMPLETE!**
-2. **Extract full registration data** (device_private_key, adp_token, cookies)
-3. **Library sync UI** - Display books from Audible
-4. **Activation bytes** - Fix binary blob extraction
-5. Download and DRM removal integration
-6. Audio playback UI
-
 ## License
 
 This project is licensed under the **GNU General Public License v3.0** (GPL-3.0).

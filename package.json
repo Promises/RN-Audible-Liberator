@@ -7,6 +7,8 @@
     "android": "npm run build:rust:android && expo run:android",
     "android:dev": "expo start --android",
     "android:release": "npm run build:rust:android && cd android && ./gradlew assembleRelease && cd .. && adb install -r android/app/build/outputs/apk/release/app-release.apk",
+    "android:bundle": "npm run prebuild:android && npm run integrate:ffmpeg && npm run build:rust:android && cd android && ./gradlew bundleRelease",
+    "android:bundle:cloud": "eas build --platform android --profile production",
     "android:build:local": "npm run build:rust:android && eas build --platform android --profile preview --local",
     "android:build:production": "npm run build:rust:android && eas build --platform android --profile production --local",
     "ios": "npm run build:rust:ios && expo run:ios",

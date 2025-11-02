@@ -49,6 +49,12 @@ yarn-error.*
 !/android/app/libs/
 !/android/app/libs/ffmpeg-kit.aar
 
+# Keystore files (NEVER commit these!)
+.keystore/
+keystore.properties
+credentials.json
+!debug.keystore
+
 # Module build artifacts
 modules/**/android/build/
 modules/**/ios/build/

@@ -12,13 +12,14 @@
       "android": {
         "buildType": "apk"
       },
-      "postPrebuild": ".eas/build/post-prebuild.sh"
+      "prebuildCommand": ".eas/build/post-prebuild.sh"
     },
     "production": {
       "android": {
-        "buildType": "apk"
+        "buildType": "app-bundle",
+        "credentialsSource": "local"
       },
-      "postPrebuild": ".eas/build/post-prebuild.sh"
+      "prebuildCommand": ".eas/build/post-prebuild.sh"
     }
   },
   "submit": {

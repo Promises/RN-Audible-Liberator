@@ -2,7 +2,12 @@
 
 set -e
 
-echo "🔧 Running post-prebuild hook..."
+echo "🔧 Running custom prebuild with FFmpeg integration..."
+
+# Run standard expo prebuild first
+echo "📱 Running expo prebuild..."
+# EAS passes --platform argument, forward it to expo prebuild
+npx expo prebuild --clean "$@"
 
 # Integrate FFmpeg-Kit into android/app/libs/
 if [ -d "android" ]; then
@@ -20,7 +25,8 @@ if [ -d "android" ]; then
     exit 1
   fi
 else
-  echo "⚠️  Android directory not found, skipping FFmpeg integration"
+  echo "❌ ERROR: Android directory not found after prebuild!"
+  exit 1
 fi
 
-echo "✅ Post-prebuild hook complete"
+echo "✅ Custom prebuild complete"

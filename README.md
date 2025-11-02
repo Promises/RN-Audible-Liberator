@@ -6,25 +6,6 @@ A React Native mobile app powered by a **direct Rust port of [Libation](https://
 
 **Project Goal:** Create a 1:1 Rust library port (`libaudible`) of Libation's C# codebase, then embed it in a React Native mobile application via native bindings.
 
-## Project Structure
-
-```
-librisync/
-├── App.tsx                      # Main React Native app
-├── modules/
-│   └── expo-rust-bridge/        # TypeScript bridge to Rust native code
-│       └── index.ts
-├── native/
-│   └── rust-core/               # Shared Rust native code
-│       ├── src/
-│       │   ├── lib.rs          # Main Rust module
-│       │   └── rust_core.udl   # UniFFI interface definition
-│       ├── Cargo.toml          # Rust dependencies
-│       └── build.rs            # Build script for UniFFI
-└── references/
-    └── Libation/               # Original Libation source for reference
-```
-
 ## Architecture
 
 ### Three-Layer Design
@@ -182,20 +163,6 @@ This project is licensed under the **GNU General Public License v3.0** (GPL-3.0)
 - **Rust port**: Copyright (C) 2025 Henning Berge
 
 This project maintains the GPL-3.0 license from Libation as it is a derivative work - a systematic translation of Libation's C# codebase to Rust. The Rust implementation preserves Libation's architecture, data models, and business logic while adapting to Rust idioms and mobile platforms.
-
-### License Terms
-
-You are free to:
-- ✅ Use this software for personal or commercial purposes
-- ✅ Modify and distribute the source code
-- ✅ Sell applications built with this code (e.g., on app stores)
-
-**Requirements:**
-- ⚠️ You must provide access to the complete source code
-- ⚠️ Modified versions must also be licensed under GPL-3.0
-- ⚠️ You must include copyright notices and license text
-
-See the [LICENSE](./LICENSE) file for full terms.
 
 ## References
 

@@ -79,3 +79,4 @@ tests/fixtures/test_account.json
 
 # Development/testing tools
 test-workers.sh
+CLAUDE.md

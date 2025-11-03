@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, Platform, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Updates from 'expo-updates';
 import Constants from 'expo-constants';
@@ -363,6 +363,16 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleGitHubPress = async () => {
+    const url = 'https://github.com/Promises/LibriSync';
+    try {
+        await Linking.openURL(url);
+    } catch (error) {
+      console.error('[Settings] Failed to open GitHub link:', error);
+      Alert.alert('Error', 'Failed to open GitHub link');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -500,6 +510,20 @@ export default function SettingsScreen() {
               React Native port of Libation Audible client
             </Text>
           </View>
+
+          <TouchableOpacity
+            style={styles.card}
+            onPress={handleGitHubPress}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.cardLabel}>Source Code</Text>
+            <Text style={[styles.cardValue, styles.linkText]}>
+              github.com/Promises/LibriSync
+            </Text>
+            <Text style={styles.cardDescription}>
+              View source code and contribute on GitHub
+            </Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -592,6 +616,9 @@ const createStyles = (theme: Theme) => ({
   },
   cardDescription: {
     ...theme.typography.caption,
+  },
+  linkText: {
+    color: theme.colors.accent,
   },
   dangerButton: {
     backgroundColor: theme.colors.backgroundSecondary,

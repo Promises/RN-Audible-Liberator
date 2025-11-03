@@ -22,8 +22,14 @@ export default {
         backgroundColor: "#5E81AC"
       },
       package: "tech.henning.librisync",
+      versionCode: 2,
       edgeToEdgeEnabled: true,
-      predictiveBackGestureEnabled: false
+      predictiveBackGestureEnabled: false,
+      permissions: [
+        "POST_NOTIFICATIONS",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_DATA_SYNC"
+      ]
     },
     web: {
       favicon: "./assets/favicon.png"
@@ -37,7 +43,9 @@ export default {
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/withDownloadService",
+      "./plugins/withFFmpegKit"
     ],
     extra: {
       eas: {

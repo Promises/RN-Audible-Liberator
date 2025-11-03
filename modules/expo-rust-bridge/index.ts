@@ -1692,6 +1692,68 @@ function getLibrarySyncStatus(): string {
 }
 
 // ============================================================================
+// Permission Management
+// ============================================================================
+
+/**
+ * Check if notification permission is granted (Android 13+).
+ * On older Android versions or iOS, this will always return true.
+ *
+ * @returns true if permission is granted, false otherwise
+ */
+async function checkNotificationPermission(): Promise<boolean> {
+  // Use React Native's PermissionsAndroid API
+  const { Platform, PermissionsAndroid } = require('react-native');
+
+  if (Platform.OS !== 'android') {
+    return true; // iOS doesn't need this
+  }
+
+  if (Platform.Version < 33) {
+    return true; // Android 12 and below don't need permission
+  }
+
+  try {
+    const result = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+    );
+    return result;
+  } catch (error) {
+    console.error('Error checking notification permission:', error);
+    return false;
+  }
+}
+
+/**
+ * Request notification permission (Android 13+).
+ * On older Android versions or iOS, this will resolve immediately with true.
+ *
+ * @returns Promise that resolves to true if granted, false if denied
+ */
+async function requestNotificationPermission(): Promise<boolean> {
+  // Use React Native's PermissionsAndroid API
+  const { Platform, PermissionsAndroid } = require('react-native');
+
+  if (Platform.OS !== 'android') {
+    return true; // iOS doesn't need this
+  }
+
+  if (Platform.Version < 33) {
+    return true; // Android 12 and below don't need permission
+  }
+
+  try {
+    const result = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+    );
+    return result === PermissionsAndroid.RESULTS.GRANTED;
+  } catch (error) {
+    console.error('Error requesting notification permission:', error);
+    return false;
+  }
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -1753,4 +1815,7 @@ export {
   cancelAllBackgroundTasks,
   getTokenRefreshStatus,
   getLibrarySyncStatus,
+  // Permission Management
+  checkNotificationPermission,
+  requestNotificationPermission,
 };

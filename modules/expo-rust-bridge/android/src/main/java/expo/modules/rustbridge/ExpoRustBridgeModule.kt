@@ -628,12 +628,16 @@ class ExpoRustBridgeModule : Module() {
     AsyncFunction("enqueueDownloadNew") { asin: String, title: String, author: String?, accountJson: String, outputDirectory: String, quality: String ->
       try {
         val context = appContext.reactContext ?: throw Exception("Context not available")
-        expo.modules.rustbridge.tasks.BackgroundTaskService.enqueueDownload(
+        val cacheDir = context.cacheDir
+        val dbPath = File(cacheDir, "audible.db").absolutePath
+
+        // Use DownloadService for downloads
+        DownloadService.enqueueBook(
           context = context,
+          dbPath = dbPath,
+          accountJson = accountJson,
           asin = asin,
           title = title,
-          author = author,
-          accountJson = accountJson,
           outputDirectory = outputDirectory,
           quality = quality
         )
@@ -1119,11 +1123,8 @@ class ExpoRustBridgeModule : Module() {
         mapOf("success" to false, "error" to e.message)
       }
     }
-  }
 
-  // ============================================================================
-  // NATIVE METHOD DECLARATIONS (JNI Bridge)
-  // ============================================================================
+  }
 
   // ============================================================================
   // JSON PARSING HELPERS
@@ -1200,7 +1201,7 @@ class ExpoRustBridgeModule : Module() {
   }
 
   // ============================================================================
-  // NATIVE LIBRARY LOADING & JNI METHODS
+  // COMPANION OBJECT
   // ============================================================================
 
   companion object {

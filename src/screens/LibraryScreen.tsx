@@ -18,6 +18,7 @@ import {
     pauseDownload,
     resumeDownload,
     cancelDownload,
+    requestNotificationPermission,
 } from '../../modules/expo-rust-bridge';
 import type {Book, Account, DownloadTask} from '../../modules/expo-rust-bridge';
 import {Paths} from 'expo-file-system';

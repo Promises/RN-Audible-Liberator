@@ -1,3 +1,7 @@
+// Calculate versionCode from unix timestamp / 10
+// This ensures each build has a unique, incrementing version code
+const versionCode = Math.floor(Date.now() / 10000);
+
 export default {
   expo: {
     name: "LibriSync",
@@ -22,7 +26,7 @@ export default {
         backgroundColor: "#5E81AC"
       },
       package: "tech.henning.librisync",
-      // versionCode is now auto-generated in build.gradle from unix timestamp
+      versionCode: versionCode,
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
       permissions: [
@@ -45,8 +49,7 @@ export default {
       ],
       "expo-secure-store",
       "./plugins/withDownloadService",
-      "./plugins/withFFmpegKit",
-      "./plugins/withGradleVersioning"
+      "./plugins/withFFmpegKit"
     ],
     extra: {
       eas: {

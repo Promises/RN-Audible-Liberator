@@ -315,125 +315,6 @@ class ExpoRustBridgeModule : Module() {
     // ============================================================================
 
     /**
-     * Convert AAX/AAXC to M4B using FFmpeg-Kit.
-     *
-     * @param inputPath Path to input AAX/AAXC file
-     * @param outputPath Path to output M4B file
-     * @param activationBytes Optional activation bytes for AAX (8 hex chars)
-     * @param aaxcKey Optional AAXC decryption key (hex string)
-     * @param aaxcIv Optional AAXC initialization vector (hex string)
-     * @return Promise resolving to Map with conversion info or error
-     */
-    AsyncFunction("convertToM4b") { inputPath: String, outputPath: String, activationBytes: String?, aaxcKey: String?, aaxcIv: String? ->
-      try {
-        val command = buildList {
-          add("-y") // Overwrite output
-
-          // Add decryption parameters
-          when {
-            aaxcKey != null && aaxcIv != null -> {
-              add("-audible_key")
-              add(aaxcKey)
-              add("-audible_iv")
-              add(aaxcIv)
-            }
-            activationBytes != null && activationBytes.isNotEmpty() -> {
-              add("-activation_bytes")
-              add(activationBytes)
-            }
-          }
-
-          add("-i")
-          add(inputPath)
-          add("-c")
-          add("copy") // Fast copy without re-encoding
-          add("-vn") // No video
-          add(outputPath)
-        }.toTypedArray()
-
-        val session = com.arthenica.ffmpegkit.FFmpegKit.execute(command.joinToString(" "))
-
-        if (com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.returnCode)) {
-          val outputFile = java.io.File(outputPath)
-          mapOf(
-            "success" to true,
-            "data" to mapOf(
-              "outputPath" to outputPath,
-              "fileSize" to outputFile.length(),
-              "returnCode" to session.returnCode.value
-            )
-          )
-        } else {
-          mapOf(
-            "success" to false,
-            "error" to "FFmpeg conversion failed: ${session.failStackTrace}"
-          )
-        }
-      } catch (e: Exception) {
-        mapOf(
-          "success" to false,
-          "error" to "Convert to M4B error: ${e.message}"
-        )
-      }
-    }
-
-    /**
-     * Convert audio file to different format using FFmpeg-Kit.
-     *
-     * @param inputPath Path to input file
-     * @param outputPath Path to output file
-     * @param codec Audio codec (aac, libmp3lame, copy)
-     * @param bitrate Bitrate (e.g., "128k" or null for default)
-     * @param quality VBR quality (0-9 for MP3, null for CBR)
-     * @return Promise resolving to Map with conversion info or error
-     */
-    AsyncFunction("convertAudio") { inputPath: String, outputPath: String, codec: String, bitrate: String?, quality: Int? ->
-      try {
-        val command = buildList {
-          add("-y") // Overwrite output
-          add("-i")
-          add(inputPath)
-          add("-codec:a")
-          add(codec)
-
-          if (quality != null && codec == "libmp3lame") {
-            add("-q:a")
-            add(quality.toString())
-          } else if (bitrate != null) {
-            add("-b:a")
-            add(bitrate)
-          }
-
-          add("-vn") // No video
-          add(outputPath)
-        }.toTypedArray()
-
-        val session = com.arthenica.ffmpegkit.FFmpegKit.execute(command.joinToString(" "))
-
-        if (com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.returnCode)) {
-          val outputFile = java.io.File(outputPath)
-          mapOf(
-            "success" to true,
-            "data" to mapOf(
-              "outputPath" to outputPath,
-              "fileSize" to outputFile.length()
-            )
-          )
-        } else {
-          mapOf(
-            "success" to false,
-            "error" to "FFmpeg conversion failed: ${session.failStackTrace}"
-          )
-        }
-      } catch (e: Exception) {
-        mapOf(
-          "success" to false,
-          "error" to "Convert audio error: ${e.message}"
-        )
-      }
-    }
-
-    /**
      * Get audio file duration and metadata using FFprobe.
      *
      * @param filePath Path to audio file
@@ -938,6 +819,51 @@ class ExpoRustBridgeModule : Module() {
     }
 
     /**
+     * Get the downloaded file path for a book by ASIN.
+     *
+     * @param dbPath Database path
+     * @param asin Book ASIN (Audible product ID)
+     * @return Map with file_path (null if not found)
+     */
+    AsyncFunction("getBookFilePath") { dbPath: String, asin: String ->
+      try {
+        val params = JSONObject().apply {
+          put("db_path", dbPath)
+          put("asin", asin)
+        }
+        val result = nativeGetBookFilePath(params.toString())
+        parseJsonResponse(result)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Clear download state for a single book by ASIN.
+     *
+     * This marks a book as not downloaded, clearing its download status
+     * and removing any download tasks to reset to default state.
+     * Optionally deletes the downloaded file from disk.
+     *
+     * @param dbPath Database path
+     * @param asin Book ASIN (Audible product ID)
+     * @param deleteFile Whether to delete the downloaded file
+     */
+    AsyncFunction("clearBookDownloadState") { dbPath: String, asin: String, deleteFile: Boolean ->
+      try {
+        val params = JSONObject().apply {
+          put("db_path", dbPath)
+          put("asin", asin)
+          put("delete_file", deleteFile)
+        }
+        val result = nativeClearBookDownloadState(params.toString())
+        parseJsonResponse(result)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
      * Clear all library data (for testing).
      *
      * @param dbPath Database path
@@ -1124,6 +1050,28 @@ class ExpoRustBridgeModule : Module() {
       }
     }
 
+    Function("setSmartPlayerCover") { enabled: Boolean ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        prefs.edit().putString("smart_player_cover_enabled", enabled.toString()).apply()
+        mapOf("success" to true)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    Function("getSmartPlayerCover") {
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        val enabled = prefs.getString("smart_player_cover_enabled", "false") == "true"
+        mapOf("success" to true, "data" to mapOf("enabled" to enabled))
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
   }
 
   // ============================================================================
@@ -1257,6 +1205,8 @@ class ExpoRustBridgeModule : Module() {
 
     // Testing functions
     @JvmStatic external fun nativeClearDownloadState(paramsJson: String): String
+    @JvmStatic external fun nativeGetBookFilePath(paramsJson: String): String
+    @JvmStatic external fun nativeClearBookDownloadState(paramsJson: String): String
     @JvmStatic external fun nativeClearLibrary(paramsJson: String): String
   }
 }

@@ -18,6 +18,8 @@ import {
     pauseDownload,
     resumeDownload,
     cancelDownload,
+    getBookFilePath,
+    clearBookDownloadState,
     requestNotificationPermission,
 } from '../../modules/expo-rust-bridge';
 import type {Book, Account, DownloadTask} from '../../modules/expo-rust-bridge';
@@ -305,8 +307,6 @@ export default function LibraryScreen() {
                     return {text: '✓ Downloaded', color: colors.success};
                 case 'failed':
                     return {text: '✗ Failed', color: colors.error};
-                case 'cancelled':
-                    return {text: 'Cancelled', color: colors.textSecondary};
                 default:
                     return {text: 'Available', color: colors.textSecondary};
             }
@@ -486,19 +486,104 @@ export default function LibraryScreen() {
         }
     };
 
+    const handleMarkAsNotDownloaded = async (book: Book) => {
+        try {
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+            // Check if file exists
+            const filePath = await getBookFilePath(dbPath, book.audible_product_id);
+
+            if (filePath) {
+                // File exists - show options to delete or just clear database
+                Alert.alert(
+                    'Mark as Not Downloaded',
+                    `A downloaded file exists for "${book.title}".\n\nWhat would you like to do?`,
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                            text: 'Clear Status Only',
+                            onPress: async () => {
+                                try {
+                                    await clearBookDownloadState(dbPath, book.audible_product_id, false);
+                                    console.log('[LibraryScreen] Cleared download status:', book.title);
+                                    Alert.alert('Success', `Download status cleared for "${book.title}".\n\nThe file still exists on disk.`);
+                                    loadBooks(true);
+                                } catch (error: any) {
+                                    console.error('[LibraryScreen] Clear status error:', error);
+                                    Alert.alert('Error', error.message || 'Failed to clear download status');
+                                }
+                            }
+                        },
+                        {
+                            text: 'Delete File',
+                            style: 'destructive',
+                            onPress: async () => {
+                                try {
+                                    const result = await clearBookDownloadState(dbPath, book.audible_product_id, true);
+                                    console.log('[LibraryScreen] Deleted file and cleared status:', book.title);
+                                    if (result.file_deleted) {
+                                        Alert.alert('Success', `File deleted and download status cleared for "${book.title}".`);
+                                    } else {
+                                        Alert.alert('Partial Success', `Download status cleared, but file could not be deleted.\n\nYou may need to delete it manually.`);
+                                    }
+                                    loadBooks(true);
+                                } catch (error: any) {
+                                    console.error('[LibraryScreen] Delete file error:', error);
+                                    Alert.alert('Error', error.message || 'Failed to delete file');
+                                }
+                            }
+                        }
+                    ]
+                );
+            } else {
+                // No file exists - just clear database
+                Alert.alert(
+                    'Mark as Not Downloaded',
+                    `Mark "${book.title}" as not downloaded?\n\nThis will clear its download status.`,
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                            text: 'Clear Status',
+                            style: 'destructive',
+                            onPress: async () => {
+                                try {
+                                    await clearBookDownloadState(dbPath, book.audible_product_id, false);
+                                    console.log('[LibraryScreen] Cleared download status:', book.title);
+                                    Alert.alert('Success', `Download status cleared for "${book.title}".`);
+                                    loadBooks(true);
+                                } catch (error: any) {
+                                    console.error('[LibraryScreen] Clear status error:', error);
+                                    Alert.alert('Error', error.message || 'Failed to clear download status');
+                                }
+                            }
+                        }
+                    ]
+                );
+            }
+        } catch (error) {
+            console.error('[LibraryScreen] Mark as not downloaded error:', error);
+        }
+    };
+
     const renderItem = ({item}: { item: Book }) => {
         const status = getStatus(item);
         const authorText = (item.authors?.length || 0) > 0 ? item.authors.join(', ') : 'Unknown Author';
         const coverUrl = getCoverUrl(item);
         const task = downloadTasks.get(item.audible_product_id);
         const isDownloaded = !!item.file_path || task?.status === 'completed';
-        const canDownload = !task || task.status === 'failed' || task.status === 'cancelled';
+        const canDownload = !task || task.status === 'failed';
         const isDownloading = task?.status === 'downloading';
         const isPaused = task?.status === 'paused';
         const isQueued = task?.status === 'queued';
 
         return (
-            <TouchableOpacity style={styles.item} onPress={() => console.log('Item pressed:', item)}>
+            <TouchableOpacity
+                style={styles.item}
+                onPress={() => console.log('Item pressed:', item)}
+                onLongPress={() => isDownloaded ? handleMarkAsNotDownloaded(item) : null}
+            >
                 <View style={styles.itemRow}>
                     {coverUrl ? (
                         <Image
@@ -624,7 +709,7 @@ export default function LibraryScreen() {
                             />
                             <TextInput
                                 style={styles.searchInput}
-                                placeholder="Search titles, authors, narrators..."
+                                placeholder="Search titles, authors, narrators, series..."
                                 placeholderTextColor={colors.textSecondary}
                                 value={searchQuery}
                                 onChangeText={setSearchQuery}

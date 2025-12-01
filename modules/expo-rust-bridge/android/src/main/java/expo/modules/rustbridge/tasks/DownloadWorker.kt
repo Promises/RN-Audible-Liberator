@@ -5,7 +5,6 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
-import expo.modules.rustbridge.ConversionManager
 import expo.modules.rustbridge.ExpoRustBridgeModule
 import kotlinx.coroutines.*
 import org.json.JSONObject
@@ -33,7 +32,6 @@ class DownloadWorker(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val conversionManager = ConversionManager(context)
 
     // Active monitoring jobs
     private val monitoringJobs = mutableMapOf<String, Job>()
@@ -457,10 +455,45 @@ class DownloadWorker(
             coverArtPath?.let { File(it).delete() }
 
             if (!com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.returnCode)) {
+                val ffmpegOutput = session.allLogsAsString
+                Log.e(TAG, "FFmpeg failed with return code: ${session.returnCode}")
+                Log.e(TAG, "FFmpeg output: $ffmpegOutput")
                 throw Exception("FFmpeg failed: ${session.failStackTrace}")
             }
 
             Log.d(TAG, "Conversion complete for $asin (with metadata + cover art)")
+
+            // CRITICAL: Validate audio file for corruption
+            Log.d(TAG, "Validating audio file integrity for $asin...")
+            manager.updateTaskMetadata(task.id, mapOf(
+                DownloadTaskMetadata.STAGE to "validating"
+            ))
+            manager.emitEvent(TaskEvent.DownloadProgress(
+                taskId = task.id,
+                asin = asin,
+                title = title,
+                stage = "validating",
+                percentage = 0,
+                bytesDownloaded = 0,
+                totalBytes = 0
+            ))
+
+            val validationResult = validateAudioFile(decryptedCachePath, asin)
+
+            if (!validationResult.isValid) {
+                Log.e(TAG, "Audio validation FAILED for $asin:")
+                Log.e(TAG, "  Error count: ${validationResult.errorCount}")
+                Log.e(TAG, "  Duration: ${validationResult.duration}s")
+                Log.e(TAG, "  Message: ${validationResult.errorMessage}")
+
+                // Delete corrupt file
+                File(decryptedCachePath).delete()
+                File(encryptedPath).delete()
+
+                throw Exception("Audio file validation failed: Corruption detected at multiple points. ${validationResult.errorMessage}")
+            }
+
+            Log.d(TAG, "✓ Audio validation PASSED for $asin (${validationResult.duration}s, 0 errors)")
 
             // Update stage
             manager.updateTaskMetadata(task.id, mapOf(
@@ -477,10 +510,13 @@ class DownloadWorker(
             ))
 
             // Copy to final destination
-            val finalPath = copyToFinalDestination(asin, title, decryptedCachePath, outputDirectory)
+            val finalPath = copyToFinalDestination(asin, title, decryptedCachePath, outputDirectory, coverArtPath)
 
             // Cleanup encrypted file
             File(encryptedPath).delete()
+
+            // Cleanup cover art temp file
+            coverArtPath?.let { File(it).delete() }
 
             // Mark as completed
             task.status = TaskStatus.COMPLETED
@@ -516,7 +552,8 @@ class DownloadWorker(
         asin: String,
         title: String,
         decryptedCachePath: String,
-        outputDirectory: String
+        outputDirectory: String,
+        coverArtPath: String?
     ): String = withContext(Dispatchers.IO) {
         val cachedFile = File(decryptedCachePath)
         var finalPath = decryptedCachePath
@@ -574,10 +611,65 @@ class DownloadWorker(
 
             // Delete cache file
             cachedFile.delete()
+
+            // Save Smart Audiobook Player cover if enabled
+            if (coverArtPath != null) {
+                try {
+                    val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+                    val smartPlayerCoverEnabled = prefs.getString("smart_player_cover_enabled", "false") == "true"
+
+                    if (smartPlayerCoverEnabled) {
+                        Log.d(TAG, "Creating Smart Audiobook Player cover (EmbeddedCover.jpg)")
+                        saveSmartPlayerCover(coverArtPath, currentDir)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to save Smart Audiobook Player cover: ${e.message}")
+                }
+            }
         }
 
         Log.d(TAG, "Complete! Final path: $finalPath")
         finalPath
+    }
+
+    /**
+     * Save cover art as EmbeddedCover.jpg (500x500) for Smart Audiobook Player
+     */
+    private fun saveSmartPlayerCover(coverArtPath: String, targetDir: DocumentFile) {
+        try {
+            // Load cover image
+            val coverFile = File(coverArtPath)
+            val originalBitmap = android.graphics.BitmapFactory.decodeFile(coverArtPath)
+                ?: throw Exception("Failed to decode cover image")
+
+            // Resize to 500x500
+            val resizedBitmap = android.graphics.Bitmap.createScaledBitmap(
+                originalBitmap,
+                500,
+                500,
+                true
+            )
+
+            // Delete existing EmbeddedCover.jpg if present
+            targetDir.findFile("EmbeddedCover.jpg")?.delete()
+
+            // Create new file
+            val embeddedCover = targetDir.createFile("image/jpeg", "EmbeddedCover.jpg")
+                ?: throw Exception("Failed to create EmbeddedCover.jpg")
+
+            // Write JPEG
+            context.contentResolver.openOutputStream(embeddedCover.uri)?.use { outputStream ->
+                resizedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, outputStream)
+            } ?: throw Exception("Failed to open output stream for EmbeddedCover.jpg")
+
+            // Cleanup
+            originalBitmap.recycle()
+            resizedBitmap.recycle()
+
+            Log.d(TAG, "Saved EmbeddedCover.jpg (500x500) to ${embeddedCover.uri}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error saving Smart Player cover: ${e.message}")
+        }
     }
 
     /**
@@ -857,6 +949,125 @@ class DownloadWorker(
             null
         }
     }
+
+    /**
+     * Validate audio file for corruption
+     *
+     * Checks multiple sample points throughout the file for AAC decode errors.
+     * Returns validation result with error count and details.
+     */
+    private suspend fun validateAudioFile(filePath: String, asin: String): AudioValidationResult = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Validating audio file: $filePath")
+
+            // Step 1: Get file duration using FFprobe
+            val probeSession = com.arthenica.ffmpegkit.FFprobeKit.getMediaInformation(filePath)
+            val duration = probeSession.mediaInformation?.duration?.toDoubleOrNull() ?: 0.0
+
+            if (duration <= 0) {
+                Log.e(TAG, "Invalid duration: $duration")
+                return@withContext AudioValidationResult(
+                    isValid = false,
+                    errorCount = -1,
+                    errorMessage = "Could not determine file duration",
+                    duration = 0.0
+                )
+            }
+
+            Log.d(TAG, "File duration: ${duration}s (${duration / 3600}h)")
+
+            // Step 2: Sample multiple points in the file
+            // Check: 30s, 25%, 50%, 75%, end-30s
+            val samplePoints = listOf(
+                30.0,                    // Start (30 seconds in)
+                duration * 0.25,         // 25%
+                duration * 0.50,         // 50%
+                duration * 0.75,         // 75%
+                maxOf(duration - 30, 60.0) // Near end (or 60s if file is short)
+            ).distinct().sorted()
+
+            Log.d(TAG, "Sampling ${samplePoints.size} points: ${samplePoints.map { "%.1fmin".format(it / 60) }}")
+
+            var totalErrors = 0
+            val sampleResults = mutableListOf<String>()
+
+            // Step 3: Check each sample point for errors
+            for ((index, timestamp) in samplePoints.withIndex()) {
+                val testDuration = 10 // Test 10 seconds at each point
+                val command = "-v error -ss $timestamp -i \"$filePath\" -t $testDuration -f null -"
+
+                val session = com.arthenica.ffmpegkit.FFmpegKit.execute(command)
+                val output = session.allLogsAsString
+
+                // Count error lines
+                val errors = output.lines().count {
+                    it.contains("Error", ignoreCase = true) ||
+                    it.contains("Invalid data", ignoreCase = true)
+                }
+
+                totalErrors += errors
+                val status = if (errors == 0) "✓" else "✗ $errors errors"
+                val timestampStr = formatTimestamp(timestamp.toLong())
+                sampleResults.add("  [$timestampStr] $status")
+
+                Log.d(TAG, "Sample ${index + 1}/${samplePoints.size} at $timestampStr: $errors errors")
+
+                // Early exit if we find significant corruption
+                if (errors > 50) {
+                    Log.w(TAG, "High error count detected at $timestampStr, stopping validation")
+                    break
+                }
+            }
+
+            // Step 4: Determine if file is valid
+            val isValid = totalErrors == 0
+            val errorMessage = if (isValid) {
+                "Audio file validated successfully"
+            } else {
+                "Audio corruption detected: $totalErrors total errors\n${sampleResults.joinToString("\n")}"
+            }
+
+            Log.d(TAG, "Validation result for $asin: ${if (isValid) "VALID" else "CORRUPT"} ($totalErrors errors)")
+
+            AudioValidationResult(
+                isValid = isValid,
+                errorCount = totalErrors,
+                errorMessage = errorMessage,
+                duration = duration,
+                samplePoints = sampleResults
+            )
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error validating audio file", e)
+            AudioValidationResult(
+                isValid = false,
+                errorCount = -1,
+                errorMessage = "Validation failed: ${e.message}",
+                duration = 0.0
+            )
+        }
+    }
+
+    /**
+     * Format seconds to HH:MM:SS timestamp
+     */
+    private fun formatTimestamp(seconds: Long): String {
+        val hours = seconds / 3600
+        val minutes = (seconds % 3600) / 60
+        val secs = seconds % 60
+        return "%02d:%02d:%02d".format(hours, minutes, secs)
+    }
+
+    /**
+     * Audio validation result
+     */
+    data class AudioValidationResult(
+        val isValid: Boolean,
+        val errorCount: Int,
+        val errorMessage: String,
+        val duration: Double,
+        val samplePoints: List<String> = emptyList()
+    )
 
     private fun parseJsonResponse(jsonString: String): Map<String, Any?> {
         return try {

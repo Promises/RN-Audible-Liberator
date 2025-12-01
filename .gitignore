@@ -53,7 +53,12 @@ yarn-error.*
 .keystore/
 keystore.properties
 credentials.json
+*.keystore
 !debug.keystore
+librisync-release.keystore
+android/keystore.properties
+android/app/*.keystore
+!android/app/debug.keystore
 
 # Module build artifacts
 modules/**/android/build/

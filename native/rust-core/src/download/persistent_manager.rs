@@ -282,12 +282,17 @@ impl PersistentDownloadManager {
             ).await;
         }
 
-        // Update database
-        self.update_task_status(task_id, TaskStatus::Cancelled).await?;
+        // Get task info before deleting
+        let task = self.get_task(task_id).await?;
 
         // Delete partial file
-        let task = self.get_task(task_id).await?;
         let _ = fs::remove_file(&task.download_path).await;
+
+        // Delete task from database (instead of setting to cancelled)
+        sqlx::query("DELETE FROM DownloadTasks WHERE task_id = ?")
+            .bind(task_id)
+            .execute(&*self.pool)
+            .await?;
 
         Ok(())
     }
@@ -490,6 +495,44 @@ impl PersistentDownloadManager {
                 message: format!("HTTP {}", response.status()),
                 is_transient: false,
             });
+        }
+
+        // CRITICAL: Verify file size matches bytes_downloaded before resuming
+        if task.bytes_downloaded > 0 {
+            if let Ok(metadata) = fs::metadata(&task.download_path).await {
+                let actual_size = metadata.len();
+
+                if actual_size != task.bytes_downloaded {
+                    eprintln!(
+                        "⚠️  File size mismatch for {}: database says {} bytes, file has {} bytes",
+                        task.asin, task.bytes_downloaded, actual_size
+                    );
+
+                    // Handle mismatch
+                    if actual_size < task.bytes_downloaded {
+                        // File is smaller - update bytes_downloaded to match reality
+                        eprintln!("   → Correcting bytes_downloaded to match actual file size: {}", actual_size);
+                        task.bytes_downloaded = actual_size;
+
+                        // Update database
+                        sqlx::query(
+                            "UPDATE DownloadTasks SET bytes_downloaded = ? WHERE task_id = ?"
+                        )
+                        .bind(actual_size as i64)
+                        .bind(&task.task_id)
+                        .execute(&*pool)
+                        .await?;
+                    } else {
+                        // File is larger - truncate to expected size
+                        eprintln!("   → Truncating file from {} to {} bytes", actual_size, task.bytes_downloaded);
+                        let mut file = fs::OpenOptions::new()
+                            .write(true)
+                            .open(&task.download_path)
+                            .await?;
+                        file.set_len(task.bytes_downloaded).await?;
+                    }
+                }
+            }
         }
 
         // Open file for writing (append mode if resuming)

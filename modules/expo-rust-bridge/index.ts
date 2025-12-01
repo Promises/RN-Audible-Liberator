@@ -517,42 +517,6 @@ export interface ExpoRustBridgeModule {
   // --------------------------------------------------------------------------
 
   /**
-   * Convert AAX/AAXC to M4B using FFmpeg-Kit.
-   *
-   * @param inputPath - Path to input AAX/AAXC file
-   * @param outputPath - Path to output M4B file
-   * @param activationBytes - Optional activation bytes for AAX (8 hex chars)
-   * @param aaxcKey - Optional AAXC decryption key (hex string)
-   * @param aaxcIv - Optional AAXC initialization vector (hex string)
-   * @returns Conversion result with output path and file size
-   */
-  convertToM4b(
-    inputPath: string,
-    outputPath: string,
-    activationBytes?: string,
-    aaxcKey?: string,
-    aaxcIv?: string
-  ): Promise<RustResponse<{ outputPath: string; fileSize: number; returnCode: number }>>;
-
-  /**
-   * Convert audio file to different format using FFmpeg-Kit.
-   *
-   * @param inputPath - Path to input file
-   * @param outputPath - Path to output file
-   * @param codec - Audio codec (aac, libmp3lame, copy)
-   * @param bitrate - Bitrate (e.g., "128k" or null for default)
-   * @param quality - VBR quality (0-9 for MP3, null for CBR)
-   * @returns Conversion result with output path and file size
-   */
-  convertAudio(
-    inputPath: string,
-    outputPath: string,
-    codec: string,
-    bitrate?: string,
-    quality?: number
-  ): Promise<RustResponse<{ outputPath: string; fileSize: number }>>;
-
-  /**
    * Get audio file duration and metadata using FFprobe.
    *
    * @param filePath - Path to audio file
@@ -738,6 +702,31 @@ export interface ExpoRustBridgeModule {
   clearDownloadState(dbPath: string): Promise<RustResponse<{ books_updated: number }>>;
 
   /**
+   * Get the downloaded file path for a book by ASIN.
+   *
+   * @param dbPath - Path to database file
+   * @param asin - Audible product ID (ASIN)
+   * @returns File path if exists, null otherwise
+   */
+  getBookFilePath(dbPath: string, asin: string): Promise<RustResponse<{ file_path: string | null }>>;
+
+  /**
+   * Clear download state for a single book by ASIN.
+   * Marks the book as not downloaded and removes any download tasks to reset to default state.
+   * Optionally deletes the downloaded file from disk.
+   *
+   * @param dbPath - Path to database file
+   * @param asin - Audible product ID (ASIN)
+   * @param deleteFile - Whether to delete the downloaded file
+   * @returns Success status with file deletion info
+   */
+  clearBookDownloadState(
+    dbPath: string,
+    asin: string,
+    deleteFile: boolean
+  ): Promise<RustResponse<{ cleared: boolean; file_deleted: boolean; deleted_path: string | null }>>;
+
+  /**
    * Clear all library data (for testing).
    */
   clearLibrary(dbPath: string): Promise<RustResponse<{ deleted: boolean }>>;
@@ -799,6 +788,20 @@ export interface ExpoRustBridgeModule {
    * @returns Current naming pattern
    */
   getNamingPattern(): RustResponse<{ pattern: string }>;
+
+  /**
+   * Set Smart Audiobook Player cover preference.
+   *
+   * @param enabled - Whether to create EmbeddedCover.jpg files
+   */
+  setSmartPlayerCover(enabled: boolean): RustResponse<{}>;
+
+  /**
+   * Get Smart Audiobook Player cover preference.
+   *
+   * @returns Current setting
+   */
+  getSmartPlayerCover(): RustResponse<{ enabled: boolean }>;
 }
 
 // ============================================================================
@@ -1591,7 +1594,7 @@ async function getPrimaryAccount(dbPath: string): Promise<Account | null> {
 }
 
 /**
- * Clear all library data (for testing).
+ * Clear download state for all books (for testing).
  *
  * @param dbPath - Database path
  */
@@ -1601,6 +1604,45 @@ async function clearDownloadState(dbPath: string): Promise<number> {
   return data.books_updated;
 }
 
+/**
+ * Get the downloaded file path for a book by ASIN.
+ *
+ * @param dbPath - Database path
+ * @param asin - Audible product ID (ASIN)
+ * @returns File path if exists, null otherwise
+ */
+async function getBookFilePath(dbPath: string, asin: string): Promise<string | null> {
+  const response = await NativeModule!.getBookFilePath(dbPath, asin);
+  const data = unwrapResult(response);
+  return data.file_path;
+}
+
+/**
+ * Clear download state for a single book by ASIN.
+ *
+ * This marks the book as not downloaded, clearing its download status
+ * and removing any download tasks to reset to default state.
+ * Optionally deletes the downloaded file from disk.
+ *
+ * @param dbPath - Database path
+ * @param asin - Audible product ID (ASIN)
+ * @param deleteFile - Whether to delete the downloaded file
+ * @returns Object with cleared status and file deletion info
+ */
+async function clearBookDownloadState(
+  dbPath: string,
+  asin: string,
+  deleteFile: boolean = false
+): Promise<{ cleared: boolean; file_deleted: boolean; deleted_path: string | null }> {
+  const response = await NativeModule!.clearBookDownloadState(dbPath, asin, deleteFile);
+  return unwrapResult(response);
+}
+
+/**
+ * Clear all library data (for testing).
+ *
+ * @param dbPath - Database path
+ */
 async function clearLibrary(dbPath: string): Promise<void> {
   const response = await NativeModule!.clearLibrary(dbPath);
   unwrapResult(response);
@@ -1806,6 +1848,8 @@ export {
   getPrimaryAccount,
   // Testing
   clearDownloadState,
+  getBookFilePath,
+  clearBookDownloadState,
   clearLibrary,
   // Periodic Worker Scheduling
   scheduleTokenRefresh,

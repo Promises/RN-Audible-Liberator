@@ -25,15 +25,48 @@ show_help() {
     echo "  rebuild     Clean and rebuild everything from scratch"
     echo "  help        Display this help message"
     echo ""
+    echo -e "${YELLOW}Environment Variables:${NC}"
+    echo "  GIT_REPO    Git repository URL to clone (required)"
+    echo "  GIT_BRANCH  Git branch to checkout (default: main)"
+    echo "  BUILD_TYPE  Build type: 'debug' or 'release' (default: debug)"
+    echo ""
     echo -e "${YELLOW}Examples:${NC}"
-    echo "  $0 build    # Build the APK"
+    echo "  # Build debug APK from git repository"
+    echo "  GIT_REPO=https://github.com/user/repo.git $0 build"
+    echo ""
+    echo "  # Build release APK"
+    echo "  GIT_REPO=https://github.com/user/repo.git BUILD_TYPE=release $0 build"
+    echo ""
+    echo "  # Build from specific branch"
+    echo "  GIT_REPO=https://github.com/user/repo.git GIT_BRANCH=develop $0 build"
+    echo ""
+    echo "  # Development shell"
     echo "  $0 dev      # Start interactive dev shell"
+    echo ""
+    echo "  # Clean up"
     echo "  $0 clean    # Clean up build artifacts"
 }
 
 # Function to build the app
 build_app() {
+    # Validate GIT_REPO is set
+    if [ -z "$GIT_REPO" ]; then
+        echo -e "${RED}Error: GIT_REPO environment variable is required${NC}"
+        echo ""
+        echo -e "${YELLOW}Please set GIT_REPO to your repository URL:${NC}"
+        echo "  export GIT_REPO=https://github.com/user/repo.git"
+        echo "  $0 build"
+        echo ""
+        echo "Or use it inline:"
+        echo "  GIT_REPO=https://github.com/user/repo.git $0 build"
+        exit 1
+    fi
+
     echo -e "${GREEN}Building LibriSync in Docker...${NC}"
+    echo -e "${YELLOW}Repository: $GIT_REPO${NC}"
+    echo -e "${YELLOW}Branch: ${GIT_BRANCH:-main}${NC}"
+    echo -e "${YELLOW}Build Type: ${BUILD_TYPE:-debug}${NC}"
+    echo ""
 
     # Create output directory
     mkdir -p build-output

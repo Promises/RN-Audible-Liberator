@@ -460,8 +460,9 @@ pub async fn list_books_with_filters(
         let pattern = format!("%{}%", search);
         where_clauses.push(
             "(b.title LIKE ? OR b.subtitle LIKE ? OR book_authors.authors LIKE ? \
-             OR book_narrators.narrators LIKE ?)"
+             OR book_narrators.narrators LIKE ? OR book_series_first.series_name LIKE ?)"
         );
+        bind_values.push(pattern.clone());
         bind_values.push(pattern.clone());
         bind_values.push(pattern.clone());
         bind_values.push(pattern.clone());
@@ -626,8 +627,9 @@ pub async fn count_books_with_filters(
         let pattern = format!("%{}%", search);
         where_clauses.push(
             "(b.title LIKE ? OR b.subtitle LIKE ? OR book_authors.authors LIKE ? \
-             OR book_narrators.narrators LIKE ?)"
+             OR book_narrators.narrators LIKE ? OR book_series.series_name LIKE ?)"
         );
+        bind_values.push(pattern.clone());
         bind_values.push(pattern.clone());
         bind_values.push(pattern.clone());
         bind_values.push(pattern.clone());
@@ -1220,6 +1222,136 @@ pub async fn clear_download_state(pool: &SqlitePool) -> Result<i64> {
     .await?;
 
     Ok(result.rows_affected() as i64)
+}
+
+/// Clear download state for a single book by ASIN.
+///
+/// This resets the download status for a specific book, clearing:
+/// - book_status -> 0 (NotLiberated)
+/// - pdf_status -> NULL
+/// - last_downloaded -> NULL
+/// - last_downloaded_version -> NULL
+/// - last_downloaded_format -> NULL
+/// - last_downloaded_file_version -> NULL
+///
+/// Also deletes any download tasks for this book to reset to default state.
+/// Optionally deletes the downloaded file from disk.
+///
+/// # Arguments
+/// * `pool` - Database connection pool
+/// * `asin` - Audible product ID (ASIN)
+/// * `delete_file` - If true, also delete the downloaded file
+///
+/// # Returns
+/// * `Ok(file_path)` - Returns the file path if it existed and was deleted, None otherwise
+/// * `Err` if book not found or database error
+pub async fn clear_book_download_state(
+    pool: &SqlitePool,
+    asin: &str,
+    delete_file: bool,
+) -> Result<Option<String>> {
+    // First verify the book exists
+    let book = find_book_by_asin(pool, asin).await?;
+    if book.is_none() {
+        return Err(crate::LibationError::InvalidInput(format!(
+            "Book with ASIN {} not found",
+            asin
+        )));
+    }
+
+    let book_id = book.unwrap().book_id;
+
+    // Get the output path from completed download tasks
+    let file_path: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT output_path
+        FROM DownloadTasks
+        WHERE asin = ? AND status = 'completed'
+        ORDER BY completed_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(asin)
+    .fetch_optional(pool)
+    .await?;
+
+    // Delete the file if requested and file path exists
+    let deleted_path = if delete_file {
+        if let Some(ref path) = file_path {
+            match tokio::fs::remove_file(path).await {
+                Ok(_) => {
+                    println!("[clear_book_download_state] Deleted file: {}", path);
+                    Some(path.clone())
+                }
+                Err(e) => {
+                    eprintln!("[clear_book_download_state] Failed to delete file {}: {}", path, e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Clear download state in UserDefinedItems
+    sqlx::query(
+        r#"
+        UPDATE UserDefinedItems
+        SET book_status = 0,
+            pdf_status = NULL,
+            last_downloaded = NULL,
+            last_downloaded_version = NULL,
+            last_downloaded_format = NULL,
+            last_downloaded_file_version = NULL
+        WHERE book_id = ?
+        "#,
+    )
+    .bind(book_id)
+    .execute(pool)
+    .await?;
+
+    // Delete any download tasks for this book to reset to default state
+    sqlx::query(
+        r#"
+        DELETE FROM DownloadTasks
+        WHERE asin = ?
+        "#,
+    )
+    .bind(asin)
+    .execute(pool)
+    .await?;
+
+    Ok(deleted_path)
+}
+
+/// Get the downloaded file path for a book by ASIN.
+///
+/// Returns the output path from the most recent completed download task.
+///
+/// # Arguments
+/// * `pool` - Database connection pool
+/// * `asin` - Audible product ID (ASIN)
+///
+/// # Returns
+/// * `Ok(Some(path))` if a completed download exists
+/// * `Ok(None)` if no completed download found
+pub async fn get_book_file_path(pool: &SqlitePool, asin: &str) -> Result<Option<String>> {
+    let file_path: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT output_path
+        FROM DownloadTasks
+        WHERE asin = ? AND status = 'completed'
+        ORDER BY completed_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(asin)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(file_path)
 }
 
 pub async fn clear_library(pool: &SqlitePool) -> Result<()> {

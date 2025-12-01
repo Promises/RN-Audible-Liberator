@@ -69,17 +69,34 @@ RUN rustup target add \
     i686-linux-android \
     x86_64-linux-android
 
+# Build arguments for git clone
+ARG GIT_REPO
+ARG GIT_BRANCH=main
+ARG BUILD_TYPE=debug
+
+# Build arguments for signing (optional, only used for release builds)
+ARG KEYSTORE_FILE=""
+ARG KEYSTORE_PASSWORD=""
+ARG KEY_ALIAS=""
+ARG KEY_PASSWORD=""
+
 # Create working directory
 WORKDIR /app
 
-# Copy package files first for better caching
-COPY package*.json ./
+# Clone the repository instead of copying local files
+# This ensures the build is reproducible and doesn't depend on local files/credentials
+RUN if [ -n "$GIT_REPO" ]; then \
+        echo "Cloning from git: $GIT_REPO (branch: $GIT_BRANCH)"; \
+        git clone --branch "$GIT_BRANCH" --depth 1 "$GIT_REPO" . && \
+        echo "Git clone complete"; \
+    else \
+        echo "ERROR: GIT_REPO build arg is required"; \
+        echo "Usage: docker build --build-arg GIT_REPO=<repo-url> --build-arg GIT_BRANCH=<branch> ."; \
+        exit 1; \
+    fi
 
 # Install Node.js dependencies
 RUN npm ci
-
-# Copy the rest of the application
-COPY . .
 
 # Save FFmpeg-Kit AAR before Expo prebuild wipes it
 RUN if [ -f android/app/libs/ffmpeg-kit.aar ]; then \
@@ -105,8 +122,30 @@ RUN mkdir -p android/app/libs && \
 RUN chmod +x ./scripts/build-rust-android-docker.sh \
     && ./scripts/build-rust-android-docker.sh
 
-# Build Android APK
-RUN cd android && ./gradlew assembleDebug
+# Set up signing for release builds
+ARG BUILD_TYPE
+ARG KEYSTORE_FILE
+ARG KEYSTORE_PASSWORD
+ARG KEY_ALIAS
+ARG KEY_PASSWORD
+RUN if [ "$BUILD_TYPE" = "release" ] && [ -n "$KEYSTORE_FILE" ]; then \
+        echo "Setting up release signing..."; \
+        echo "$KEYSTORE_FILE" | base64 -d > android/app/librisync-release.keystore && \
+        echo "MYAPP_UPLOAD_STORE_FILE=librisync-release.keystore" > android/keystore.properties && \
+        echo "MYAPP_UPLOAD_STORE_PASSWORD=$KEYSTORE_PASSWORD" >> android/keystore.properties && \
+        echo "MYAPP_UPLOAD_KEY_ALIAS=$KEY_ALIAS" >> android/keystore.properties && \
+        echo "MYAPP_UPLOAD_KEY_PASSWORD=$KEY_PASSWORD" >> android/keystore.properties && \
+        echo "✓ Signing configuration created"; \
+    fi
+
+# Build Android APK (debug or release based on BUILD_TYPE)
+RUN if [ "$BUILD_TYPE" = "release" ]; then \
+        echo "Building release APK..."; \
+        cd android && ./gradlew assembleRelease; \
+    else \
+        echo "Building debug APK..."; \
+        cd android && ./gradlew assembleDebug; \
+    fi
 
 # Final stage - lighter image with just the build artifacts
 FROM --platform=linux/amd64 ubuntu:22.04

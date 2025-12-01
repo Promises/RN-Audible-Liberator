@@ -5,6 +5,13 @@ services:
       dockerfile: Dockerfile
       args:
         - BUILDKIT_INLINE_CACHE=1
+        - GIT_REPO=${GIT_REPO:-}
+        - GIT_BRANCH=${GIT_BRANCH:-main}
+        - BUILD_TYPE=${BUILD_TYPE:-debug}
+        - KEYSTORE_FILE=${KEYSTORE_FILE:-}
+        - KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-}
+        - KEY_ALIAS=${KEY_ALIAS:-}
+        - KEY_PASSWORD=${KEY_PASSWORD:-}
     image: librisync:latest
     container_name: librisync-builder
     volumes:

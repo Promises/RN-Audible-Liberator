@@ -2,7 +2,7 @@ export default {
   expo: {
     name: "LibriSync",
     slug: "librisync",
-    version: "0.0.3",
+    version: "0.0.4",
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
@@ -22,7 +22,7 @@ export default {
         backgroundColor: "#5E81AC"
       },
       package: "tech.henning.librisync",
-      versionCode: 2,
+      // versionCode is now auto-generated in build.gradle from unix timestamp
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
       permissions: [

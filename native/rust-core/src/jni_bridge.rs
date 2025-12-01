@@ -2667,6 +2667,132 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeClearD
         .into_raw()
 }
 
+/// Get the downloaded file path for a book by ASIN
+///
+/// Returns the file path if a completed download exists.
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../audible.db",
+///   "asin": "B07NP9L44Y"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": { "file_path": "/storage/path/to/book.m4b" }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeGetBookFilePath(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            asin: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let file_path = crate::storage::queries::get_book_file_path(db.pool(), &params.asin).await?;
+                Ok(success_response(serde_json::json!({"file_path": file_path})))
+            })
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Clear download state for a single book by ASIN
+///
+/// This resets the download status for a specific book, clearing book_status,
+/// last_downloaded, and related fields in UserDefinedItems table.
+/// Also deletes any download tasks for the book to reset to default state.
+/// Optionally deletes the downloaded file from disk.
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../audible.db",
+///   "asin": "B07NP9L44Y",
+///   "delete_file": false
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": { "cleared": true, "file_deleted": false, "deleted_path": null }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeClearBookDownloadState(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            asin: String,
+            #[serde(default)]
+            delete_file: bool,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let deleted_path = crate::storage::queries::clear_book_download_state(
+                    db.pool(),
+                    &params.asin,
+                    params.delete_file,
+                )
+                .await?;
+
+                Ok(success_response(serde_json::json!({
+                    "cleared": true,
+                    "file_deleted": deleted_path.is_some(),
+                    "deleted_path": deleted_path
+                })))
+            })
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
 /// Clear all library data (for testing)
 ///
 /// # Arguments (JSON string)

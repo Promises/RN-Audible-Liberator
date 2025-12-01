@@ -18,6 +18,7 @@ import {
 
 const DOWNLOAD_PATH_KEY = 'download_path';
 const NAMING_PATTERN_KEY = 'naming_pattern';
+const SMART_PLAYER_COVER_KEY = 'smart_player_cover_enabled';
 const SYNC_FREQUENCY_KEY = 'sync_frequency';
 const SYNC_WIFI_ONLY_KEY = 'sync_wifi_only';
 const AUTO_TOKEN_REFRESH_KEY = 'auto_token_refresh';
@@ -31,6 +32,7 @@ export default function SettingsScreen() {
   const { colors } = useTheme(); // For Switch components
   const [downloadPath, setDownloadPath] = useState<string | null>(null);
   const [namingPattern, setNamingPattern] = useState<NamingPattern>('author_series_book');
+  const [smartPlayerCover, setSmartPlayerCover] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   // Sync settings
@@ -61,15 +63,23 @@ export default function SettingsScreen() {
       if (savedSyncWifi !== null) setSyncWifiOnly(savedSyncWifi === 'true');
       if (savedAutoRefresh !== null) setAutoTokenRefresh(savedAutoRefresh === 'true');
 
-      // Load naming pattern from native SharedPreferences
+      // Load naming pattern and Smart Player cover from native SharedPreferences
       if (Platform.OS === 'android') {
         try {
-          const result = await ExpoRustBridge.getNamingPattern();
-          if (result.success && result.data) {
-            setNamingPattern((result.data as any).pattern as NamingPattern);
+          const [namingResult, coverResult] = await Promise.all([
+            ExpoRustBridge.getNamingPattern(),
+            ExpoRustBridge.getSmartPlayerCover(),
+          ]);
+
+          if (namingResult.success && namingResult.data) {
+            setNamingPattern((namingResult.data as any).pattern as NamingPattern);
+          }
+
+          if (coverResult.success && coverResult.data) {
+            setSmartPlayerCover((coverResult.data as any).enabled);
           }
         } catch (error) {
-          console.error('[Settings] Failed to load naming pattern from native:', error);
+          console.error('[Settings] Failed to load native preferences:', error);
         }
       }
     } catch (error) {
@@ -247,6 +257,18 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleSmartPlayerCoverChange = async (value: boolean) => {
+    setSmartPlayerCover(value);
+
+    try {
+      await ExpoRustBridge.setSmartPlayerCover(value);
+      console.log(`[Settings] Smart Audiobook Player cover: ${value}`);
+    } catch (error) {
+      console.error('[Settings] Failed to save Smart Player cover setting:', error);
+      Alert.alert('Error', 'Failed to update Smart Player cover setting');
+    }
+  };
+
   const getNamingPatternLabel = (pattern: NamingPattern): string => {
     switch (pattern) {
       case 'flat_file': return 'Flat File';
@@ -419,6 +441,21 @@ export default function SettingsScreen() {
             >
               <Text style={styles.buttonText}>{getNamingPatternLabel(namingPattern)}</Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Smart Audiobook Player Cover</Text>
+              <Text style={styles.settingDescription}>
+                Save EmbeddedCover.jpg (500x500) for Smart Audiobook Player compatibility
+              </Text>
+            </View>
+            <Switch
+              value={smartPlayerCover}
+              onValueChange={handleSmartPlayerCoverChange}
+              trackColor={{ false: colors.border, true: colors.accentDim }}
+              thumbColor={smartPlayerCover ? colors.accent : colors.textSecondary}
+            />
           </View>
         </View>
 

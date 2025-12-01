@@ -117,6 +117,10 @@ RUN mkdir -p android/app/libs && \
         echo "Warning: ffmpeg-kit.aar not found, build may fail"; \
     fi
 
+# Patch build.gradle to add dynamic version reading
+RUN chmod +x ./scripts/patch-gradle-version.sh && \
+    ./scripts/patch-gradle-version.sh
+
 # Build Rust libraries for Android AFTER prebuild
 # This ensures .so files are copied to the generated android directory
 RUN chmod +x ./scripts/build-rust-android-docker.sh \

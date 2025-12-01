@@ -91,3 +91,8 @@ tests/fixtures/test_account.json
 # Development/testing tools
 test-workers.sh
 CLAUDE.md
+
+# Docker build outputs
+build-output/
+*.apk
+!android/app/build/outputs/apk/

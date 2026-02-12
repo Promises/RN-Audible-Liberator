@@ -1354,6 +1354,52 @@ pub async fn get_book_file_path(pool: &SqlitePool, asin: &str) -> Result<Option<
     Ok(file_path)
 }
 
+/// Set the file path for a book by creating a manually completed download task.
+///
+/// This allows users to mark a book as downloaded by associating it with an
+/// existing audio file on disk. Creates a download task with status "completed".
+///
+/// # Arguments
+/// * `pool` - Database connection pool
+/// * `asin` - Audible product ID (ASIN)
+/// * `title` - Book title
+/// * `file_path` - Absolute path to the audio file
+///
+/// # Returns
+/// * `Ok(task_id)` - ID of the created download task
+pub async fn set_book_file_path(
+    pool: &SqlitePool,
+    asin: &str,
+    title: &str,
+    file_path: &str,
+) -> Result<String> {
+    use uuid::Uuid;
+    let task_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    sqlx::query(
+        r#"
+        INSERT INTO DownloadTasks (
+            task_id, asin, title, status, bytes_downloaded, total_bytes,
+            download_url, download_path, output_path, request_headers,
+            retry_count, created_at, started_at, completed_at
+        )
+        VALUES (?, ?, ?, 'completed', 0, 0, '', '', ?, '{}', 0, ?, ?, ?)
+        "#,
+    )
+    .bind(&task_id)
+    .bind(asin)
+    .bind(title)
+    .bind(file_path)
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+
+    Ok(task_id)
+}
+
 pub async fn clear_library(pool: &SqlitePool) -> Result<()> {
     // Delete in correct order to respect foreign keys
     sqlx::query("DELETE FROM LibraryBooks").execute(pool).await?;

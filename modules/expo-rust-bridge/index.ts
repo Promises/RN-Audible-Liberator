@@ -727,6 +727,42 @@ export interface ExpoRustBridgeModule {
   ): Promise<RustResponse<{ cleared: boolean; file_deleted: boolean; deleted_path: string | null }>>;
 
   /**
+   * Set the file path for a book manually.
+   *
+   * Allows marking a book as downloaded by associating it with an existing
+   * audio file. Creates a download task with status "completed".
+   *
+   * @param dbPath - Path to database file
+   * @param asin - Audible product ID
+   * @param title - Book title
+   * @param filePath - Absolute path to the audio file
+   * @returns Task ID of the created download task
+   */
+  setBookFilePath(
+    dbPath: string,
+    asin: string,
+    title: string,
+    filePath: string
+  ): Promise<RustResponse<{ task_id: string }>>;
+
+  /**
+   * Create cover art file (EmbeddedCover.jpg) for a book.
+   *
+   * Downloads and saves the book's cover image as EmbeddedCover.jpg (500x500)
+   * in the same directory as the audio file for Smart Audiobook Player compatibility.
+   *
+   * @param asin - Audible product ID
+   * @param coverUrl - URL of the cover image
+   * @param audioFilePath - Path to the audio file (cover saved in same directory)
+   * @returns Path to created cover file
+   */
+  createCoverArtFile(
+    asin: string,
+    coverUrl: string,
+    audioFilePath: string
+  ): Promise<RustResponse<{ coverPath: string; message: string }>>;
+
+  /**
    * Clear all library data (for testing).
    */
   clearLibrary(dbPath: string): Promise<RustResponse<{ deleted: boolean }>>;
@@ -1639,6 +1675,49 @@ async function clearBookDownloadState(
 }
 
 /**
+ * Set the file path for a book manually.
+ *
+ * Allows users to mark a book as downloaded by associating it with an existing
+ * audio file on disk. Creates a download task with status "completed".
+ *
+ * @param dbPath - Database path
+ * @param asin - Audible product ID (ASIN)
+ * @param title - Book title
+ * @param filePath - Absolute path to the audio file
+ * @returns Task ID of the created download task
+ */
+async function setBookFilePath(
+  dbPath: string,
+  asin: string,
+  title: string,
+  filePath: string
+): Promise<string> {
+  const response = await NativeModule!.setBookFilePath(dbPath, asin, title, filePath);
+  const data = unwrapResult(response);
+  return data.task_id;
+}
+
+/**
+ * Create cover art file (EmbeddedCover.jpg) for a book.
+ *
+ * Downloads and saves the book's cover image as EmbeddedCover.jpg (500x500)
+ * in the same directory as the audio file for Smart Audiobook Player compatibility.
+ *
+ * @param asin - Audible product ID
+ * @param coverUrl - URL of the cover image
+ * @param audioFilePath - Path to the audio file (cover will be saved in same directory)
+ * @returns Path to created cover file
+ */
+async function createCoverArtFile(
+  asin: string,
+  coverUrl: string,
+  audioFilePath: string
+): Promise<{ coverPath: string; message: string }> {
+  const response = await NativeModule!.createCoverArtFile(asin, coverUrl, audioFilePath);
+  return unwrapResult(response);
+}
+
+/**
  * Clear all library data (for testing).
  *
  * @param dbPath - Database path
@@ -1850,6 +1929,8 @@ export {
   clearDownloadState,
   getBookFilePath,
   clearBookDownloadState,
+  setBookFilePath,
+  createCoverArtFile,
   clearLibrary,
   // Periodic Worker Scheduling
   scheduleTokenRefresh,

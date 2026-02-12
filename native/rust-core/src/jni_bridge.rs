@@ -2793,6 +2793,73 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeClearB
         .into_raw()
 }
 
+/// Set the file path for a book manually
+///
+/// Allows users to mark a book as downloaded by associating it with an
+/// existing audio file on disk. Creates a download task with status "completed".
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../audible.db",
+///   "asin": "B07NP9L44Y",
+///   "title": "Book Title",
+///   "file_path": "/storage/emulated/0/Download/book.m4b"
+/// }
+/// ```
+///
+/// # Returns (JSON)
+/// ```json
+/// {
+///   "success": true,
+///   "data": { "task_id": "uuid-string" }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeSetBookFilePath(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            asin: String,
+            title: String,
+            file_path: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let db = crate::storage::Database::new(&params.db_path).await?;
+                let task_id = crate::storage::queries::set_book_file_path(
+                    db.pool(),
+                    &params.asin,
+                    &params.title,
+                    &params.file_path,
+                )
+                .await?;
+
+                Ok(success_response(serde_json::json!({"task_id": task_id})))
+            })
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
 /// Clear all library data (for testing)
 ///
 /// # Arguments (JSON string)

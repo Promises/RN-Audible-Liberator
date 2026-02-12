@@ -864,6 +864,115 @@ class ExpoRustBridgeModule : Module() {
     }
 
     /**
+     * Set the file path for a book manually.
+     *
+     * Allows marking a book as downloaded by associating it with an existing
+     * audio file. Creates a download task with status "completed".
+     *
+     * @param dbPath Database path
+     * @param asin Audible product ID
+     * @param title Book title
+     * @param filePath Absolute path to the audio file
+     */
+    AsyncFunction("setBookFilePath") { dbPath: String, asin: String, title: String, filePath: String ->
+      try {
+        val params = JSONObject().apply {
+          put("db_path", dbPath)
+          put("asin", asin)
+          put("title", title)
+          put("file_path", filePath)
+        }
+        val result = nativeSetBookFilePath(params.toString())
+        parseJsonResponse(result)
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
+     * Create cover art file (EmbeddedCover.jpg) for a book.
+     *
+     * Downloads and saves the book's cover image as EmbeddedCover.jpg (500x500)
+     * in the same directory as the audio file for Smart Audiobook Player compatibility.
+     *
+     * @param asin Audible product ID
+     * @param coverUrl URL of the cover image
+     * @param audioFilePath Path to the audio file (cover will be saved in same directory)
+     */
+    AsyncFunction("createCoverArtFile") { asin: String, coverUrl: String, audioFilePath: String ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+
+        // Get the directory containing the audio file
+        val audioUri = Uri.parse(if (audioFilePath.startsWith("content://")) audioFilePath else "file://$audioFilePath")
+        val audioFile = DocumentFile.fromSingleUri(context, audioUri)
+          ?: throw Exception("Could not access audio file")
+
+        val targetDir = audioFile.parentFile
+          ?: throw Exception("Could not access parent directory")
+
+        // Download cover image to cache
+        val cacheDir = context.cacheDir
+        val coverFile = File(cacheDir, "cover_$asin.jpg")
+
+        // Download the cover image
+        val url = java.net.URL(coverUrl.replace(Regex("_SL\\d+_"), "_SL500_"))
+        val connection = url.openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 10000
+        connection.readTimeout = 10000
+        connection.connect()
+
+        if (connection.responseCode != 200) {
+          throw Exception("Failed to download cover image: HTTP ${connection.responseCode}")
+        }
+
+        coverFile.outputStream().use { output ->
+          connection.inputStream.use { input ->
+            input.copyTo(output)
+          }
+        }
+
+        // Load and resize cover image
+        val originalBitmap = android.graphics.BitmapFactory.decodeFile(coverFile.absolutePath)
+          ?: throw Exception("Failed to decode cover image")
+
+        val resizedBitmap = android.graphics.Bitmap.createScaledBitmap(
+          originalBitmap,
+          500,
+          500,
+          true
+        )
+
+        // Delete existing EmbeddedCover.jpg if present
+        targetDir.findFile("EmbeddedCover.jpg")?.delete()
+
+        // Create new file
+        val embeddedCover = targetDir.createFile("image/jpeg", "EmbeddedCover.jpg")
+          ?: throw Exception("Failed to create EmbeddedCover.jpg")
+
+        // Write JPEG
+        context.contentResolver.openOutputStream(embeddedCover.uri)?.use { outputStream ->
+          resizedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, outputStream)
+        } ?: throw Exception("Failed to open output stream for EmbeddedCover.jpg")
+
+        // Cleanup
+        originalBitmap.recycle()
+        resizedBitmap.recycle()
+        coverFile.delete()
+
+        mapOf(
+          "success" to true,
+          "data" to mapOf(
+            "coverPath" to embeddedCover.uri.toString(),
+            "message" to "Cover art created successfully"
+          )
+        )
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
      * Clear all library data (for testing).
      *
      * @param dbPath Database path
@@ -1207,6 +1316,7 @@ class ExpoRustBridgeModule : Module() {
     @JvmStatic external fun nativeClearDownloadState(paramsJson: String): String
     @JvmStatic external fun nativeGetBookFilePath(paramsJson: String): String
     @JvmStatic external fun nativeClearBookDownloadState(paramsJson: String): String
+    @JvmStatic external fun nativeSetBookFilePath(paramsJson: String): String
     @JvmStatic external fun nativeClearLibrary(paramsJson: String): String
   }
 }

@@ -20,11 +20,14 @@ import {
     cancelDownload,
     getBookFilePath,
     clearBookDownloadState,
+    setBookFilePath,
+    createCoverArtFile,
     requestNotificationPermission,
 } from '../../modules/expo-rust-bridge';
 import type {Book, Account, DownloadTask} from '../../modules/expo-rust-bridge';
 import {Paths} from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
+import * as DocumentPicker from 'expo-document-picker';
 
 const DOWNLOAD_PATH_KEY = 'download_path';
 const LIBRARY_PREFS_KEY = 'library_preferences';
@@ -67,6 +70,8 @@ export default function LibraryScreen() {
     // Modal state
     const [showFilterModal, setShowFilterModal] = useState(false);
     const [showSortModal, setShowSortModal] = useState(false);
+    const [showContextMenu, setShowContextMenu] = useState(false);
+    const [selectedBook, setSelectedBook] = useState<Book | null>(null);
 
     // Controls visibility
     const [showControls, setShowControls] = useState(false);
@@ -567,6 +572,89 @@ export default function LibraryScreen() {
         }
     };
 
+    const handleSelectFileAsDownloaded = async (book: Book) => {
+        try {
+            // Open file picker for audio files
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['audio/*', 'application/octet-stream'],
+                copyToCacheDirectory: false,
+            });
+
+            if (result.canceled || !result.assets || result.assets.length === 0) {
+                console.log('[LibraryScreen] File picker cancelled');
+                return;
+            }
+
+            const file = result.assets[0];
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+            console.log('[LibraryScreen] Selected file:', file.uri);
+
+            await setBookFilePath(dbPath, book.audible_product_id, book.title, file.uri);
+
+            Alert.alert(
+                'Success',
+                `"${book.title}" has been marked as downloaded.\n\nFile: ${file.name}`
+            );
+
+            loadBooks(true);
+        } catch (error: any) {
+            console.error('[LibraryScreen] Set file path error:', error);
+            Alert.alert('Error', error.message || 'Failed to set file path');
+        }
+    };
+
+    const handleCreateCoverArt = async (book: Book) => {
+        try {
+            if (!book.cover_url) {
+                Alert.alert('Error', 'This book has no cover image available');
+                return;
+            }
+
+            // Get the book's file path
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+            const filePath = await getBookFilePath(dbPath, book.audible_product_id);
+
+            if (!filePath) {
+                Alert.alert(
+                    'Error',
+                    'This book is not downloaded yet. Please download or select a file first.'
+                );
+                return;
+            }
+
+            Alert.alert(
+                'Creating Cover Art',
+                'Downloading and creating EmbeddedCover.jpg...',
+                []
+            );
+
+            const result = await createCoverArtFile(
+                book.audible_product_id,
+                book.cover_url,
+                filePath
+            );
+
+            Alert.alert(
+                'Success',
+                `Cover art created successfully!\n\nEmbeddedCover.jpg (500x500) has been saved in the same directory as your audiobook.`
+            );
+        } catch (error: any) {
+            console.error('[LibraryScreen] Create cover art error:', error);
+            Alert.alert('Error', error.message || 'Failed to create cover art');
+        }
+    };
+
+    const handleBookLongPress = (book: Book) => {
+        setSelectedBook(book);
+        setShowContextMenu(true);
+    };
+
     const renderItem = ({item}: { item: Book }) => {
         const status = getStatus(item);
         const authorText = (item.authors?.length || 0) > 0 ? item.authors.join(', ') : 'Unknown Author';
@@ -582,7 +670,7 @@ export default function LibraryScreen() {
             <TouchableOpacity
                 style={styles.item}
                 onPress={() => console.log('Item pressed:', item)}
-                onLongPress={() => isDownloaded ? handleMarkAsNotDownloaded(item) : null}
+                onLongPress={() => handleBookLongPress(item)}
             >
                 <View style={styles.itemRow}>
                     {coverUrl ? (
@@ -951,6 +1039,110 @@ export default function LibraryScreen() {
                     </View>
                 </TouchableOpacity>
             </Modal>
+
+            {/* Context Menu Modal */}
+            <Modal
+                visible={showContextMenu}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setShowContextMenu(false)}
+            >
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowContextMenu(false)}
+                >
+                    <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+                        <Text style={styles.modalTitle}>
+                            {selectedBook?.title || 'Book Options'}
+                        </Text>
+                        <Text style={styles.modalSubtitle}>
+                            {selectedBook?.authors?.join(', ') || ''}
+                        </Text>
+
+                        <TouchableOpacity
+                            style={styles.modalOption}
+                            onPress={() => {
+                                setShowContextMenu(false);
+                                if (selectedBook) {
+                                    handleSelectFileAsDownloaded(selectedBook);
+                                }
+                            }}
+                        >
+                            <Ionicons
+                                name="document-attach"
+                                size={24}
+                                color={colors.accent}
+                                style={styles.modalOptionIcon}
+                            />
+                            <View style={styles.modalOptionTextContainer}>
+                                <Text style={styles.modalOptionText}>Select File as Downloaded</Text>
+                                <Text style={styles.modalOptionDescription}>
+                                    Choose an existing audio file on your device
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.modalOption}
+                            onPress={() => {
+                                setShowContextMenu(false);
+                                if (selectedBook) {
+                                    handleCreateCoverArt(selectedBook);
+                                }
+                            }}
+                        >
+                            <Ionicons
+                                name="image"
+                                size={24}
+                                color={colors.accent}
+                                style={styles.modalOptionIcon}
+                            />
+                            <View style={styles.modalOptionTextContainer}>
+                                <Text style={styles.modalOptionText}>Create Cover Art File</Text>
+                                <Text style={styles.modalOptionDescription}>
+                                    Save EmbeddedCover.jpg for Smart Audiobook Player
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        {selectedBook && (
+                            <>
+                                <View style={styles.modalDivider} />
+                                <TouchableOpacity
+                                    style={styles.modalOption}
+                                    onPress={() => {
+                                        setShowContextMenu(false);
+                                        handleMarkAsNotDownloaded(selectedBook);
+                                    }}
+                                >
+                                    <Ionicons
+                                        name="trash-outline"
+                                        size={24}
+                                        color={colors.error}
+                                        style={styles.modalOptionIcon}
+                                    />
+                                    <View style={styles.modalOptionTextContainer}>
+                                        <Text style={[styles.modalOptionText, {color: colors.error}]}>
+                                            Mark as Not Downloaded
+                                        </Text>
+                                        <Text style={styles.modalOptionDescription}>
+                                            Clear download status and optionally delete file
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            </>
+                        )}
+
+                        <TouchableOpacity
+                            style={styles.modalCancelButton}
+                            onPress={() => setShowContextMenu(false)}
+                        >
+                            <Text style={styles.modalCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -1255,5 +1447,26 @@ const createStyles = (theme: Theme) => ({
         ...theme.typography.body,
         fontWeight: '600' as const,
         color: theme.colors.background,
+    },
+    modalSubtitle: {
+        ...theme.typography.caption,
+        marginBottom: theme.spacing.md,
+        color: theme.colors.textSecondary,
+    },
+    modalOptionIcon: {
+        marginRight: theme.spacing.md,
+    },
+    modalOptionTextContainer: {
+        flex: 1,
+    },
+    modalOptionDescription: {
+        ...theme.typography.caption,
+        color: theme.colors.textSecondary,
+        marginTop: theme.spacing.xs,
+    },
+    modalDivider: {
+        height: 1,
+        backgroundColor: theme.colors.border,
+        marginVertical: theme.spacing.sm,
     },
 });

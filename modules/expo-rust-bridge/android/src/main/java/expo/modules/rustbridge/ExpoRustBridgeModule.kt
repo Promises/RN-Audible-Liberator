@@ -529,6 +529,28 @@ class ExpoRustBridgeModule : Module() {
     }
 
     /**
+     * Retry conversion for a failed download that still has the cached .aax file.
+     *
+     * @param dbPath Database path
+     * @param asin Book ASIN
+     * @return Map with success status
+     */
+    AsyncFunction("retryConversion") { dbPath: String, asin: String ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+
+        DownloadService.retryConversion(
+          context = context,
+          dbPath = dbPath,
+          asin = asin
+        )
+        mapOf("success" to true, "data" to mapOf("message" to "Conversion retry started"))
+      } catch (e: Exception) {
+        mapOf("success" to false, "error" to e.message)
+      }
+    }
+
+    /**
      * Start library sync using the new background task system.
      *
      * @param fullSync Whether to do a full sync (default: false)
@@ -1307,6 +1329,8 @@ class ExpoRustBridgeModule : Module() {
     @JvmStatic external fun nativePauseDownload(paramsJson: String): String
     @JvmStatic external fun nativeResumeDownload(paramsJson: String): String
     @JvmStatic external fun nativeCancelDownload(paramsJson: String): String
+    @JvmStatic external fun nativeUpdateDownloadTaskStatus(paramsJson: String): String
+    @JvmStatic external fun nativeStoreConversionKeys(paramsJson: String): String
 
     // Account functions
     @JvmStatic external fun nativeSaveAccount(paramsJson: String): String

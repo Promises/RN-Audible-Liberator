@@ -37,6 +37,12 @@ pub enum TaskStatus {
     Failed,
     #[serde(rename = "cancelled")]
     Cancelled,
+    #[serde(rename = "decrypting")]
+    Decrypting,
+    #[serde(rename = "validating")]
+    Validating,
+    #[serde(rename = "copying")]
+    Copying,
 }
 
 impl TaskStatus {
@@ -48,6 +54,9 @@ impl TaskStatus {
             TaskStatus::Completed => "completed",
             TaskStatus::Failed => "failed",
             TaskStatus::Cancelled => "cancelled",
+            TaskStatus::Decrypting => "decrypting",
+            TaskStatus::Validating => "validating",
+            TaskStatus::Copying => "copying",
         }
     }
 
@@ -59,6 +68,9 @@ impl TaskStatus {
             "completed" => Ok(TaskStatus::Completed),
             "failed" => Ok(TaskStatus::Failed),
             "cancelled" => Ok(TaskStatus::Cancelled),
+            "decrypting" => Ok(TaskStatus::Decrypting),
+            "validating" => Ok(TaskStatus::Validating),
+            "copying" => Ok(TaskStatus::Copying),
             _ => Err(LibationError::InvalidInput(format!("Invalid task status: {}", s))),
         }
     }
@@ -83,6 +95,9 @@ pub struct DownloadTask {
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    pub aaxc_key: Option<String>,
+    pub aaxc_iv: Option<String>,
+    pub output_directory: Option<String>,
 }
 
 impl DownloadTask {
@@ -106,6 +121,13 @@ impl DownloadTask {
     pub fn can_resume(&self) -> bool {
         matches!(self.status, TaskStatus::Paused | TaskStatus::Failed)
             && self.bytes_downloaded < self.total_bytes
+    }
+
+    /// Check if task has stored conversion keys for retry
+    pub fn can_retry_conversion(&self) -> bool {
+        self.status == TaskStatus::Failed
+            && self.aaxc_key.is_some()
+            && self.aaxc_iv.is_some()
     }
 }
 
@@ -335,6 +357,17 @@ impl PersistentDownloadManager {
             .bind(TaskStatus::Downloading.as_str())
             .execute(&*self.pool)
             .await?;
+
+        // Tasks stuck in conversion stages on restart → mark as failed
+        // (in-memory conversion state is lost on restart)
+        for stuck_status in &[TaskStatus::Decrypting, TaskStatus::Validating, TaskStatus::Copying] {
+            sqlx::query("UPDATE DownloadTasks SET status = ?, error = ? WHERE status = ?")
+                .bind(TaskStatus::Failed.as_str())
+                .bind("Interrupted: app was closed during conversion")
+                .bind(stuck_status.as_str())
+                .execute(&*self.pool)
+                .await?;
+        }
 
         // Start downloads up to concurrency limit
         for _ in 0..self.max_concurrent {
@@ -601,9 +634,42 @@ impl PersistentDownloadManager {
     }
 
     /// Update task status
-    async fn update_task_status(&self, task_id: &str, status: TaskStatus) -> Result<()> {
+    pub async fn update_task_status(&self, task_id: &str, status: TaskStatus) -> Result<()> {
         sqlx::query("UPDATE DownloadTasks SET status = ? WHERE task_id = ?")
             .bind(status.as_str())
+            .bind(task_id)
+            .execute(&*self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Update task status and optionally set error message
+    pub async fn update_task_status_with_error(&self, task_id: &str, status: TaskStatus, error: Option<&str>) -> Result<()> {
+        if let Some(err_msg) = error {
+            sqlx::query("UPDATE DownloadTasks SET status = ?, error = ? WHERE task_id = ?")
+                .bind(status.as_str())
+                .bind(err_msg)
+                .bind(task_id)
+                .execute(&*self.pool)
+                .await?;
+        } else {
+            sqlx::query("UPDATE DownloadTasks SET status = ?, error = NULL WHERE task_id = ?")
+                .bind(status.as_str())
+                .bind(task_id)
+                .execute(&*self.pool)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Store conversion keys and output directory for a task (enables retry without re-download)
+    pub async fn store_conversion_keys(&self, task_id: &str, aaxc_key: &str, aaxc_iv: &str, output_directory: &str) -> Result<()> {
+        sqlx::query("UPDATE DownloadTasks SET aaxc_key = ?, aaxc_iv = ?, output_directory = ? WHERE task_id = ?")
+            .bind(aaxc_key)
+            .bind(aaxc_iv)
+            .bind(output_directory)
             .bind(task_id)
             .execute(&*self.pool)
             .await?;
@@ -636,6 +702,9 @@ impl PersistentDownloadManager {
             created_at: row.try_get("created_at")?,
             started_at: row.try_get("started_at").ok(),
             completed_at: row.try_get("completed_at").ok(),
+            aaxc_key: row.try_get("aaxc_key").ok(),
+            aaxc_iv: row.try_get("aaxc_iv").ok(),
+            output_directory: row.try_get("output_directory").ok(),
         })
     }
 }

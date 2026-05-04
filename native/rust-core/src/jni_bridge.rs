@@ -83,6 +83,9 @@ async fn get_or_create_manager(db_path: &str) -> crate::Result<std::sync::Arc<cr
         3, // max concurrent downloads
     ).await?;
 
+    // On fresh process start, mark stuck conversion tasks as failed
+    manager.resume_all_pending().await?;
+
     let manager_arc = std::sync::Arc::new(manager);
     managers.insert(db_path.to_string(), std::sync::Arc::clone(&manager_arc));
 
@@ -2475,6 +2478,123 @@ pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeCancel
             RUNTIME.block_on(async {
                 let manager = get_or_create_manager(&params.db_path).await?;
                 manager.cancel_download(&params.task_id).await
+            })?;
+
+            Ok(success_response(serde_json::json!({"success": true})))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+// ============================================================================
+// DOWNLOAD TASK STATUS UPDATE FUNCTIONS
+// ============================================================================
+
+/// Update download task status from Kotlin (for post-download conversion stages)
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../audible.db",
+///   "task_id": "uuid-string",
+///   "status": "decrypting",
+///   "error": null
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeUpdateDownloadTaskStatus(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            task_id: String,
+            status: String,
+            error: Option<String>,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            let status = crate::download::TaskStatus::from_str(&params.status)?;
+
+            RUNTIME.block_on(async {
+                let manager = get_or_create_manager(&params.db_path).await?;
+                manager.update_task_status_with_error(
+                    &params.task_id,
+                    status,
+                    params.error.as_deref(),
+                ).await
+            })?;
+
+            Ok(success_response(serde_json::json!({"success": true})))
+        })() {
+            Ok(result) => result,
+            Err(e) => error_response(&e.to_string()),
+        }
+    });
+
+    env.new_string(response)
+        .expect("Failed to create Java string")
+        .into_raw()
+}
+
+/// Store conversion keys and output directory for a download task
+///
+/// # Arguments (JSON string)
+/// ```json
+/// {
+///   "db_path": "/data/data/.../audible.db",
+///   "task_id": "uuid-string",
+///   "aaxc_key": "hex-key",
+///   "aaxc_iv": "hex-iv",
+///   "output_directory": "content://..."
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn Java_expo_modules_rustbridge_ExpoRustBridgeModule_nativeStoreConversionKeys(
+    mut env: JNIEnv,
+    _class: JClass,
+    params_json: JString,
+) -> jstring {
+    let params_str_result = jstring_to_string(&mut env, params_json);
+
+    let response = catch_panic(move || {
+        #[derive(Deserialize)]
+        struct Params {
+            db_path: String,
+            task_id: String,
+            aaxc_key: String,
+            aaxc_iv: String,
+            output_directory: String,
+        }
+
+        match (move || -> crate::Result<String> {
+            let params_str = params_str_result?;
+            let params: Params = serde_json::from_str(&params_str)
+                .map_err(|e| crate::LibationError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+
+            RUNTIME.block_on(async {
+                let manager = get_or_create_manager(&params.db_path).await?;
+                manager.store_conversion_keys(
+                    &params.task_id,
+                    &params.aaxc_key,
+                    &params.aaxc_iv,
+                    &params.output_directory,
+                ).await
             })?;
 
             Ok(success_response(serde_json::json!({"success": true})))

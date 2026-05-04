@@ -2208,6 +2208,67 @@ mod tests {
 
         // Germany should use amazon.de
         assert!(url.starts_with("https://www.amazon.de/ap/signin"));
+        // DE marketplace ID should be AN7V1F1VY261K (not AN7EY7DTAW63G which is AU)
+        assert!(url.contains("AN7V1F1VY261K"), "DE should use marketplace ID AN7V1F1VY261K");
+    }
+
+    #[test]
+    fn test_locale_de_no_username() {
+        let locale = Locale::de();
+        assert_eq!(locale.country_code, "de");
+        assert_eq!(locale.domain, "audible.de");
+        assert!(!locale.with_username, "DE locale should not use username-based auth");
+    }
+
+    #[test]
+    fn test_locale_br() {
+        let locale = Locale::br();
+        assert_eq!(locale.country_code, "br");
+        assert_eq!(locale.domain, "audible.com.br");
+        assert_eq!(locale.name, "Brazil");
+        assert!(!locale.with_username);
+    }
+
+    #[test]
+    fn test_locale_br_in_all() {
+        let all = Locale::all();
+        assert!(all.iter().any(|l| l.country_code == "br"), "BR locale should be in Locale::all()");
+    }
+
+    #[test]
+    fn test_locale_br_from_country_code() {
+        let locale = Locale::from_country_code("br").unwrap();
+        assert_eq!(locale.domain, "audible.com.br");
+    }
+
+    #[test]
+    fn test_generate_authorization_url_br() {
+        let locale = Locale::br();
+        let device_serial = "test-device-br";
+        let pkce = PkceChallenge::generate().unwrap();
+        let state = OAuthState::generate();
+
+        let url = generate_authorization_url(&locale, device_serial, &pkce, &state).unwrap();
+
+        assert!(url.starts_with("https://www.amazon.com.br/ap/signin"));
+        assert!(url.contains("A10J1VAYUDTYRN"), "BR should use marketplace ID A10J1VAYUDTYRN");
+    }
+
+    #[test]
+    fn test_all_locales_generate_valid_auth_urls() {
+        for locale in Locale::all() {
+            let device_serial = "test-device-all";
+            let pkce = PkceChallenge::generate().unwrap();
+            let state = OAuthState::generate();
+
+            let url = generate_authorization_url(&locale, device_serial, &pkce, &state).unwrap();
+            assert!(url.starts_with("https://www.amazon"),
+                "Locale {} should generate a valid Amazon auth URL, got: {}", locale.country_code, &url[..50]);
+            assert!(url.contains("marketPlaceId="),
+                "Locale {} auth URL should contain a marketplace ID", locale.country_code);
+            assert!(url.contains("openid.mode=checkid_setup"),
+                "Locale {} auth URL should contain openid mode", locale.country_code);
+        }
     }
 
     // ========== OAuth Callback Parsing Tests ==========

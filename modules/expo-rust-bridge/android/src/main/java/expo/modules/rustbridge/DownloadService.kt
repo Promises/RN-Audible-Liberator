@@ -32,6 +32,7 @@ class DownloadService : Service() {
         private const val ACTION_CANCEL_TASK = "expo.modules.rustbridge.CANCEL_TASK"
         private const val ACTION_STOP_MONITORING = "expo.modules.rustbridge.STOP_MONITORING"
         private const val ACTION_SET_WIFI_ONLY = "expo.modules.rustbridge.SET_WIFI_ONLY"
+        private const val ACTION_RETRY_CONVERSION = "expo.modules.rustbridge.RETRY_CONVERSION"
 
         private const val EXTRA_DB_PATH = "db_path"
         private const val EXTRA_ACCOUNT_JSON = "account_json"
@@ -104,6 +105,23 @@ class DownloadService : Service() {
                 putExtra(EXTRA_TASK_ID, taskId)
             }
             context.startService(intent)
+        }
+
+        /**
+         * Retry conversion for a failed download
+         */
+        fun retryConversion(context: Context, dbPath: String, asin: String) {
+            val intent = Intent(context, DownloadService::class.java).apply {
+                action = ACTION_RETRY_CONVERSION
+                putExtra(EXTRA_DB_PATH, dbPath)
+                putExtra(EXTRA_ASIN, asin)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
     }
 
@@ -179,6 +197,7 @@ class DownloadService : Service() {
             ACTION_CANCEL_TASK -> handleCancelTask(intent)
             ACTION_STOP_MONITORING -> handleStopMonitoring(intent)
             ACTION_SET_WIFI_ONLY -> handleSetWifiOnly(intent)
+            ACTION_RETRY_CONVERSION -> handleRetryConversion(intent)
         }
 
         return START_STICKY
@@ -271,6 +290,22 @@ class DownloadService : Service() {
             ExpoRustBridgeModule.nativeCancelDownload(cancelParams.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to cancel download", e)
+        }
+    }
+
+    private fun handleRetryConversion(intent: Intent) {
+        val asin = intent.getStringExtra(EXTRA_ASIN) ?: return
+        Log.d(TAG, "Retrying conversion for: $asin")
+
+        serviceScope.launch {
+            try {
+                val success = orchestrator.retryConversion(asin)
+                if (!success) {
+                    Log.e(TAG, "Retry conversion failed for $asin")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error retrying conversion", e)
+            }
         }
     }
 

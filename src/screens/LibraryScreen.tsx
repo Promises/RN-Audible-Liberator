@@ -18,6 +18,7 @@ import {
     pauseDownload,
     resumeDownload,
     cancelDownload,
+    retryConversion,
     getBookFilePath,
     clearBookDownloadState,
     setBookFilePath,
@@ -108,7 +109,7 @@ export default function LibraryScreen() {
         React.useCallback(() => {
             console.log('[LibraryScreen] Tab focused, reloading books...');
             loadBooks(true);
-        }, [])
+        }, [searchQuery, sortField, sortDirection, selectedSeries, selectedCategory])
     );
 
     // Poll for download progress
@@ -308,6 +309,12 @@ export default function LibraryScreen() {
                     return {text: `⬇ ${percentage}%`, color: colors.info};
                 case 'paused':
                     return {text: `⏸ Paused ${percentage}%`, color: colors.warning};
+                case 'decrypting':
+                    return {text: '🔓 Decrypting...', color: colors.info};
+                case 'validating':
+                    return {text: '🔍 Validating...', color: colors.info};
+                case 'copying':
+                    return {text: '📁 Saving...', color: colors.info};
                 case 'completed':
                     return {text: '✓ Downloaded', color: colors.success};
                 case 'failed':
@@ -491,6 +498,20 @@ export default function LibraryScreen() {
         }
     };
 
+    const handleRetryConversion = async (book: Book) => {
+        try {
+            const cacheUri = Paths.cache.uri;
+            const cachePath = cacheUri.replace('file://', '');
+            const dbPath = `${cachePath.replace(/\/$/, '')}/audible.db`;
+
+            await retryConversion(dbPath, book.audible_product_id);
+            console.log('[LibraryScreen] Conversion retry started:', book.title);
+        } catch (error: any) {
+            console.error('[LibraryScreen] Retry conversion error:', error);
+            Alert.alert('Retry Failed', error.message || 'Failed to retry conversion');
+        }
+    };
+
     const handleMarkAsNotDownloaded = async (book: Book) => {
         try {
             const cacheUri = Paths.cache.uri;
@@ -661,7 +682,9 @@ export default function LibraryScreen() {
         const coverUrl = getCoverUrl(item);
         const task = downloadTasks.get(item.audible_product_id);
         const isDownloaded = !!item.file_path || task?.status === 'completed';
-        const canDownload = !task || task.status === 'failed';
+        const isProcessing = task?.status === 'decrypting' || task?.status === 'validating' || task?.status === 'copying';
+        const canRetryConversion = task?.status === 'failed' && !!task.aaxc_key;
+        const canDownload = !task || (task.status === 'failed' && !canRetryConversion);
         const isDownloading = task?.status === 'downloading';
         const isPaused = task?.status === 'paused';
         const isQueued = task?.status === 'queued';
@@ -704,13 +727,28 @@ export default function LibraryScreen() {
                         </View>
                     </View>
 
-                    {!isDownloaded && canDownload && (
+                    {!isDownloaded && !isProcessing && canDownload && (
                         <TouchableOpacity
                             style={styles.downloadButton}
                             onPress={() => handleDownload(item)}
                         >
                             <Text style={styles.downloadButtonText}>⬇</Text>
                         </TouchableOpacity>
+                    )}
+
+                    {!isDownloaded && canRetryConversion && (
+                        <TouchableOpacity
+                            style={styles.resumeButton}
+                            onPress={() => handleRetryConversion(item)}
+                        >
+                            <Text style={styles.resumeButtonText}>↻</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {isProcessing && (
+                        <View style={styles.downloadButton}>
+                            <ActivityIndicator size="small" color={colors.info} />
+                        </View>
                     )}
 
                     {isDownloading && (

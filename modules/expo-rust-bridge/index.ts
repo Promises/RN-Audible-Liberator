@@ -234,7 +234,7 @@ export interface SyncStats {
 /**
  * Download task status enumeration.
  */
-export type TaskStatus = 'queued' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'queued' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'decrypting' | 'validating' | 'copying';
 
 /**
  * Download task representing a book download.
@@ -255,6 +255,9 @@ export interface DownloadTask {
   created_at: string;
   started_at?: string;
   completed_at?: string;
+  aaxc_key?: string;
+  aaxc_iv?: string;
+  output_directory?: string;
 }
 
 /**
@@ -549,6 +552,15 @@ export interface ExpoRustBridgeModule {
     outputDirectory: string,
     quality: string
   ): Promise<RustResponse<{ message: string }>>;
+
+  /**
+   * Retry conversion for a failed download that still has cached .aax file.
+   *
+   * @param dbPath - Path to SQLite database
+   * @param asin - Book ASIN to retry
+   * @returns Success status
+   */
+  retryConversion(dbPath: string, asin: string): Promise<RustResponse<{ message: string }>>;
 
   /**
    * Get download task status.
@@ -1316,6 +1328,18 @@ async function enqueueDownload(
 }
 
 /**
+ * Retry conversion for a failed download that has a cached .aax file and stored keys.
+ *
+ * @param dbPath - Path to database file
+ * @param asin - Book ASIN to retry
+ * @throws {RustBridgeError} If retry fails
+ */
+async function retryConversion(dbPath: string, asin: string): Promise<void> {
+  const response = await NativeModule!.retryConversion(dbPath, asin);
+  unwrapResult(response);
+}
+
+/**
  * Get download task status.
  *
  * @param dbPath - Path to database file
@@ -1901,6 +1925,7 @@ export {
   RustBridgeError,
   // Download Manager (Old System)
   enqueueDownload,
+  retryConversion,
   getDownloadTask,
   listDownloadTasks,
   pauseDownload,

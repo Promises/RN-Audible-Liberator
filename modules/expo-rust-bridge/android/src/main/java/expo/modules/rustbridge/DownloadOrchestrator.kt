@@ -155,7 +155,10 @@ class DownloadOrchestrator(
 
             Log.d(TAG, "Download enqueued: $taskId")
 
-            // Step 4: Start monitoring this download
+            // Step 4: Store conversion keys in DB for retry capability
+            storeConversionKeysInDb(taskId, aaxcKey, aaxcIv, outputDirectory)
+
+            // Step 5: Start monitoring this download
             startMonitoringDownload(
                 taskId = taskId,
                 asin = asin,
@@ -236,7 +239,7 @@ class DownloadOrchestrator(
                                 try {
                                     triggerConversion(
                                         asin, title, encryptedPath, decryptedCachePath,
-                                        outputDirectory, aaxcKey, aaxcIv
+                                        outputDirectory, aaxcKey, aaxcIv, taskId
                                     )
                                 } catch (e: CancellationException) {
                                     Log.d(TAG, "Conversion cancelled for $asin")
@@ -282,10 +285,17 @@ class DownloadOrchestrator(
         decryptedCachePath: String,
         outputDirectory: String,
         aaxcKey: String,
-        aaxcIv: String
+        aaxcIv: String,
+        taskId: String? = null
     ) = withContext(Dispatchers.IO) {
+        // Resolve task ID outside try so it's available in catch
+        val resolvedTaskId = taskId ?: findTaskIdForAsin(asin)
+
         try {
             Log.d(TAG, "Starting conversion for $asin...")
+
+            // Persist decrypting stage to DB
+            resolvedTaskId?.let { updateTaskStatusInDb(it, "decrypting") }
 
             // Notify decrypting stage
             progressCallback?.invoke(asin, "decrypting", 0.0, 0, 0)
@@ -440,9 +450,6 @@ class DownloadOrchestrator(
 
             val session = com.arthenica.ffmpegkit.FFmpegKit.execute(command)
 
-            // Cleanup cover art temp file
-            coverArtPath?.let { File(it).delete() }
-
             if (!com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.returnCode)) {
                 val ffmpegOutput = session.allLogsAsString
                 Log.e(TAG, "FFmpeg failed with return code: ${session.returnCode}")
@@ -454,6 +461,7 @@ class DownloadOrchestrator(
 
             // CRITICAL: Validate audio file for corruption
             Log.d(TAG, "Validating audio file integrity for $asin...")
+            resolvedTaskId?.let { updateTaskStatusInDb(it, "validating") }
             progressCallback?.invoke(asin, "validating", 0.0, 0, 0)
 
             val validationResult = validateAudioFile(decryptedCachePath, asin)
@@ -474,6 +482,7 @@ class DownloadOrchestrator(
             Log.d(TAG, "✓ Audio validation PASSED for $asin (${validationResult.duration}s, 0 errors)")
 
             // Notify copying stage
+            resolvedTaskId?.let { updateTaskStatusInDb(it, "copying") }
             progressCallback?.invoke(asin, "copying", 0.0, 0, 0)
 
             // Copy to final destination
@@ -485,8 +494,13 @@ class DownloadOrchestrator(
             // Cleanup cover art temp file
             coverArtPath?.let { File(it).delete() }
 
+            // Mark as completed in DB
+            resolvedTaskId?.let { updateTaskStatusInDb(it, "completed") }
+
         } catch (e: Exception) {
             Log.e(TAG, "Conversion failed for $asin", e)
+            // Mark as failed in DB with error
+            resolvedTaskId?.let { updateTaskStatusWithError(it, "failed", e.message ?: "Conversion failed") }
             errorCallback?.invoke(asin, title, e.message ?: "Conversion failed")
         }
     }
@@ -1145,6 +1159,161 @@ class DownloadOrchestrator(
         val duration: Double,
         val samplePoints: List<String> = emptyList()
     )
+
+    /**
+     * Retry conversion for a failed download that has cached .aax file and stored keys
+     */
+    suspend fun retryConversion(asin: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Find the task for this ASIN by parsing the raw JSON response
+            val listParams = JSONObject().apply {
+                put("db_path", dbPath)
+            }
+            val listResult = ExpoRustBridgeModule.nativeListDownloadTasks(listParams.toString())
+            val json = JSONObject(listResult)
+
+            if (!json.getBoolean("success")) {
+                Log.e(TAG, "Failed to list tasks for retry: ${json.optString("error")}")
+                return@withContext false
+            }
+
+            val dataObj = json.getJSONObject("data")
+            val tasksArray = dataObj.getJSONArray("tasks")
+
+            // Find the failed task for this ASIN
+            var taskObj: JSONObject? = null
+            for (i in 0 until tasksArray.length()) {
+                val t = tasksArray.getJSONObject(i)
+                if (t.getString("asin") == asin && t.getString("status") == "failed") {
+                    taskObj = t
+                    break
+                }
+            }
+
+            if (taskObj == null) {
+                Log.e(TAG, "No failed task found for ASIN: $asin")
+                return@withContext false
+            }
+
+            val taskId = taskObj.getString("task_id")
+            val title = taskObj.optString("title", asin)
+            val aaxcKey = taskObj.optString("aaxc_key", null)
+            val aaxcIv = taskObj.optString("aaxc_iv", null)
+            val outputDirectory = taskObj.optString("output_directory", null)
+
+            if (aaxcKey == null || aaxcIv == null || outputDirectory == null) {
+                Log.e(TAG, "Missing conversion keys for retry: key=$aaxcKey, iv=$aaxcIv, dir=$outputDirectory")
+                return@withContext false
+            }
+
+            // Check if encrypted file still exists
+            val cacheDir = context.cacheDir
+            val audiobooksDir = File(cacheDir, "audiobooks")
+            val encryptedPath = File(audiobooksDir, "$asin.aax").absolutePath
+            val decryptedCachePath = File(audiobooksDir, "$asin.m4b").absolutePath
+
+            if (!File(encryptedPath).exists()) {
+                Log.e(TAG, "Encrypted file not found for retry: $encryptedPath")
+                updateTaskStatusWithError(taskId, "failed", "Cached file not found - re-download required")
+                return@withContext false
+            }
+
+            // Delete any corrupt decrypted file from previous attempt
+            File(decryptedCachePath).delete()
+
+            Log.d(TAG, "Retrying conversion for $asin (taskId=$taskId)")
+
+            // Trigger conversion
+            triggerConversion(
+                asin, title, encryptedPath, decryptedCachePath,
+                outputDirectory, aaxcKey, aaxcIv, taskId
+            )
+
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error retrying conversion for $asin", e)
+            false
+        }
+    }
+
+    /**
+     * Update task status in the database via JNI
+     */
+    private fun updateTaskStatusInDb(taskId: String, status: String) {
+        try {
+            val params = JSONObject().apply {
+                put("db_path", dbPath)
+                put("task_id", taskId)
+                put("status", status)
+            }
+            ExpoRustBridgeModule.nativeUpdateDownloadTaskStatus(params.toString())
+            Log.d(TAG, "Updated task $taskId status to $status in DB")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update task status in DB: ${e.message}")
+        }
+    }
+
+    /**
+     * Update task status with error message in the database via JNI
+     */
+    private fun updateTaskStatusWithError(taskId: String, status: String, error: String) {
+        try {
+            val params = JSONObject().apply {
+                put("db_path", dbPath)
+                put("task_id", taskId)
+                put("status", status)
+                put("error", error)
+            }
+            ExpoRustBridgeModule.nativeUpdateDownloadTaskStatus(params.toString())
+            Log.d(TAG, "Updated task $taskId status to $status with error in DB")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update task status with error in DB: ${e.message}")
+        }
+    }
+
+    /**
+     * Store conversion keys in the database for retry capability
+     */
+    private fun storeConversionKeysInDb(taskId: String, aaxcKey: String, aaxcIv: String, outputDirectory: String) {
+        try {
+            val params = JSONObject().apply {
+                put("db_path", dbPath)
+                put("task_id", taskId)
+                put("aaxc_key", aaxcKey)
+                put("aaxc_iv", aaxcIv)
+                put("output_directory", outputDirectory)
+            }
+            ExpoRustBridgeModule.nativeStoreConversionKeys(params.toString())
+            Log.d(TAG, "Stored conversion keys for task $taskId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to store conversion keys: ${e.message}")
+        }
+    }
+
+    /**
+     * Find the task ID for an ASIN from the database
+     */
+    private fun findTaskIdForAsin(asin: String): String? {
+        return try {
+            val listParams = JSONObject().apply {
+                put("db_path", dbPath)
+            }
+            val listResult = ExpoRustBridgeModule.nativeListDownloadTasks(listParams.toString())
+            val parsed = parseJsonResponse(listResult)
+
+            if (parsed["success"] == true) {
+                val data = parsed["data"] as? Map<*, *>
+                @Suppress("UNCHECKED_CAST")
+                val tasks = data?.get("tasks") as? List<Map<*, *>> ?: emptyList()
+                tasks.find { it["asin"] == asin }?.get("task_id") as? String
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error finding task ID for $asin", e)
+            null
+        }
+    }
 
     private fun parseJsonResponse(jsonString: String): Map<String, Any?> {
         return try {

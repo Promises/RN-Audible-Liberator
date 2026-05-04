@@ -46,6 +46,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     run_migration(pool, 1, "initial_schema", create_initial_schema(pool)).await?;
     run_migration(pool, 2, "download_tasks", create_download_tasks_table(pool)).await?;
     run_migration(pool, 3, "accounts", create_accounts_table(pool)).await?;
+    run_migration(pool, 4, "download_conversion_columns", add_download_conversion_columns(pool)).await?;
 
     Ok(())
 }
@@ -362,12 +363,14 @@ mod tests {
         .expect("Failed to query tables");
 
         let expected_tables = vec![
+            "Accounts",
             "BookCategories",
             "BookContributors",
             "Books",
             "Categories",
             "CategoryLadders",
             "Contributors",
+            "DownloadTasks",
             "LibraryBooks",
             "Series",
             "SeriesBooks",
@@ -453,6 +456,33 @@ CREATE INDEX IF NOT EXISTS idx_download_tasks_created_at ON DownloadTasks(create
         "#,
     )
     .await?;
+
+    Ok(())
+}
+
+/// Add conversion-related columns to DownloadTasks table
+///
+/// These columns store AAXC decryption keys and output directory so that
+/// conversion can be retried without re-downloading the encrypted file.
+async fn add_download_conversion_columns(pool: &SqlitePool) -> Result<()> {
+    // SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so check first
+    let columns: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM pragma_table_info('DownloadTasks')"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if !columns.contains(&"aaxc_key".to_string()) {
+        pool.execute("ALTER TABLE DownloadTasks ADD COLUMN aaxc_key TEXT").await?;
+    }
+
+    if !columns.contains(&"aaxc_iv".to_string()) {
+        pool.execute("ALTER TABLE DownloadTasks ADD COLUMN aaxc_iv TEXT").await?;
+    }
+
+    if !columns.contains(&"output_directory".to_string()) {
+        pool.execute("ALTER TABLE DownloadTasks ADD COLUMN output_directory TEXT").await?;
+    }
 
     Ok(())
 }

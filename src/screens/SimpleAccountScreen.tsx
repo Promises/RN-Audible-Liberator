@@ -398,9 +398,50 @@ export default function SimpleAccountScreen() {
       console.log('[SimpleAccountScreen] Database path:', dbPath);
       initializeDatabase(dbPath);
 
+      // Ensure access token is valid before syncing
+      let syncAccount = account;
+      if (syncAccount.identity?.access_token) {
+        const expiresAt = new Date(syncAccount.identity.access_token.expires_at);
+        const minutesUntilExpiry = (expiresAt.getTime() - Date.now()) / 1000 / 60;
+
+        if (minutesUntilExpiry < 5) {
+          console.log('[SimpleAccountScreen] Token expiring soon, refreshing before sync...');
+          try {
+            const newTokens = await refreshToken(syncAccount);
+            const newExpiry = new Date(Date.now() + parseInt(newTokens.expires_in.toString(), 10) * 1000);
+
+            syncAccount = {
+              ...syncAccount,
+              identity: {
+                ...syncAccount.identity!,
+                access_token: {
+                  token: newTokens.access_token,
+                  expires_at: newExpiry.toISOString(),
+                },
+                refresh_token: newTokens.refresh_token || syncAccount.identity!.refresh_token,
+              },
+            };
+
+            // Persist refreshed account
+            await saveAccount(dbPath, syncAccount);
+            await SecureStore.setItemAsync('audible_account', JSON.stringify(syncAccount));
+            await SecureStore.setItemAsync('token_expires_at', newExpiry.toISOString());
+            setAccount(syncAccount);
+            setTokenExpiry(newExpiry);
+
+            console.log('[SimpleAccountScreen] Token refreshed before sync, new expiry:', newExpiry.toLocaleString());
+          } catch (refreshError: any) {
+            console.error('[SimpleAccountScreen] Token refresh failed before sync:', refreshError);
+            Alert.alert('Sync Failed', 'Could not refresh expired token. Please log in again.');
+            setIsSyncing(false);
+            return;
+          }
+        }
+      }
+
       // Sync library page-by-page with progress updates
       console.log('[SimpleAccountScreen] Starting page-by-page sync...');
-      const stats = await syncLibrary(dbPath, account, (_pageStats, page, aggregatedStats) => {
+      const stats = await syncLibrary(dbPath, syncAccount, (_pageStats, page, aggregatedStats) => {
         console.log(`[SimpleAccountScreen] Page ${page} synced: ${_pageStats.total_items} items`);
         // Update UI incrementally after each page
         setSyncStats({

@@ -7,7 +7,7 @@ Manage your audiobook library. Browse free LibriVox books and sync your Audible 
 ## Features
 
 **Browse & Download Free Audiobooks**
-Discover thousands of free public domain audiobooks from LibriVox — no account required. Search by title or author, and download directly to your device.
+Discover thousands of free public domain audiobooks from LibriVox - no account required. Search by title or author, and download directly to your device.
 
 **Sync Your Audible Library**
 Connect your Audible account to sync your purchased audiobooks. View your entire library with cover art, series info, and duration details.
@@ -16,7 +16,7 @@ Connect your Audible account to sync your purchased audiobooks. View your entire
 Background downloads with progress notifications, pause/resume support, and automatic retry on failure.
 
 **Smart File Organization**
-Choose how your audiobooks are organized on your device — flat files, Author/Book, or Author/Series/Book folders. Compatible with Smart Audiobook Player for seamless cover art integration.
+Choose how your audiobooks are organized on your device - flat files, Author/Book, or Author/Series/Book folders. Compatible with Smart Audiobook Player for seamless cover art integration.
 
 **Export Your Library**
 Export your audiobook collection to CSV, JSON, XLSX, TXT, or PNG. Sort by name or length, group by author or series, and copy formatted text to clipboard.
@@ -43,7 +43,7 @@ No tracking. No analytics. No ads. No accounts required for LibriVox browsing. A
 
 ## Development
 
-LibriSync is built with React Native (TypeScript) and a Rust core library — a direct port of [Libation](https://github.com/rmcrackan/Libation)'s C# codebase.
+LibriSync is built with React Native (TypeScript) and a Rust core library - a direct port of [Libation](https://github.com/rmcrackan/Libation)'s C# codebase.
 
 ### Architecture
 

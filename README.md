@@ -2,9 +2,7 @@
 
 Manage your audiobook library. Browse free LibriVox books and sync your Audible collection.
 
-**[henning.tech/librisync](https://henning.tech/librisync)** · 
-
-[//]: # ([Google Play]&#40;https://play.google.com/store/apps/details?id=tech.henning.librisync&#41;)
+**[henning.tech/librisync](https://henning.tech/librisync)**<!-- · [Google Play](https://play.google.com/store/apps/details?id=tech.henning.librisync)-->
 
 ## Features
 

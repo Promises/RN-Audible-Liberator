@@ -207,24 +207,25 @@ export default function LibriVoxBrowseScreen() {
       await handleAddToLibrary(book);
     }
 
+    const authorText = (book.authors || []).map(a => getAuthorName(a)).join(', ') || 'Unknown Author';
+
     setIsDownloading(true);
     try {
-      Alert.alert(
-        'Downloading',
-        `Downloading "${book.title}"... This may take a while for larger books.`,
-      );
-
       await downloadLibrivoxFile(
         book.id,
         book.title,
+        authorText,
         book.url_zip_file,
         downloadDir,
       );
 
-      Alert.alert('Download Complete', `"${book.title}" has been downloaded.`);
+      Alert.alert(
+        'Download Started',
+        `"${book.title}" is downloading. Check the notification for progress.`,
+      );
     } catch (error: any) {
       console.error('[LibriVoxBrowse] Download error:', error);
-      Alert.alert('Download Failed', error.message || 'Failed to download book');
+      Alert.alert('Download Failed', error.message || 'Failed to start download');
     } finally {
       setIsDownloading(false);
     }

@@ -159,6 +159,26 @@ export async function getRecentBooks(
 }
 
 /**
+ * Get a single LibriVox audiobook by ID.
+ */
+export async function getBook(bookId: string): Promise<LibriVoxBook | null> {
+  const params = new URLSearchParams({
+    id: bookId,
+    format: 'json',
+    fields: '{id,title,description,url_librivox,url_other,url_zip_file,language,copyright_year,num_sections,totaltimesecs,authors}',
+  });
+
+  try {
+    const response = await fetchWithTimeout(`${API_BASE}/audiobooks?${params}`);
+    const data: LibriVoxApiResponse<LibriVoxBook> = await response.json();
+    return data.books?.[0] ?? null;
+  } catch (error: any) {
+    console.error('[LibriVox] getBook error:', error);
+    return null;
+  }
+}
+
+/**
  * Get chapters/sections for a specific book.
  */
 export async function getBookSections(bookId: string): Promise<LibriVoxSection[]> {

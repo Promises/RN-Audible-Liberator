@@ -1143,71 +1143,22 @@ class ExpoRustBridgeModule : Module() {
       }
     }
 
-    AsyncFunction("downloadLibrivoxFile") { librivoxId: String, title: String, downloadUrl: String, outputDirectory: String ->
+    AsyncFunction("downloadLibrivoxFile") { librivoxId: String, title: String, author: String?, downloadUrl: String, outputDirectory: String ->
       try {
         val context = appContext.reactContext ?: throw Exception("Context not available")
-        val dbPath = AppPaths.databasePath(context)
 
-        // Download to cache first
-        val cacheDir = java.io.File(context.cacheDir, "librivox")
-        cacheDir.mkdirs()
-        val fileName = "${librivoxId}_${title.replace(Regex("[^a-zA-Z0-9._-]"), "_")}.mp3"
-        val cacheFile = java.io.File(cacheDir, fileName)
-
-        val url = java.net.URL(downloadUrl)
-        val connection = url.openConnection() as java.net.HttpURLConnection
-        connection.connectTimeout = 30000
-        connection.readTimeout = 30000
-        connection.connect()
-
-        val totalBytes = connection.contentLengthLong
-
-        connection.inputStream.use { input ->
-          java.io.FileOutputStream(cacheFile).use { output ->
-            val buffer = ByteArray(8192)
-            var bytesRead: Long = 0
-            var len: Int
-            while (input.read(buffer).also { len = it } != -1) {
-              output.write(buffer, 0, len)
-              bytesRead += len
-            }
-          }
-        }
-        connection.disconnect()
-
-        // Copy to SAF output directory
-        val treeUri = android.net.Uri.parse(outputDirectory)
-        val docDir = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, treeUri)
-          ?: throw Exception("Invalid output directory")
-
-        val outputFile = docDir.createFile("audio/mpeg", fileName)
-          ?: throw Exception("Failed to create file in output directory")
-
-        context.contentResolver.openOutputStream(outputFile.uri)?.use { outputStream ->
-          java.io.FileInputStream(cacheFile).use { inputStream ->
-            inputStream.copyTo(outputStream)
-          }
-        } ?: throw Exception("Failed to open output stream")
-
-        // Mark as downloaded in database
-        val asin = "librivox_$librivoxId"
-        val setPathParams = JSONObject().apply {
-          put("db_path", dbPath)
-          put("asin", asin)
-          put("title", title)
-          put("file_path", outputFile.uri.toString())
-        }
-        nativeSetBookFilePath(setPathParams.toString())
-
-        // Clean up cache
-        cacheFile.delete()
+        DownloadService.enqueueLibrivoxBook(
+          context = context,
+          librivoxId = librivoxId,
+          title = title,
+          author = author ?: "",
+          downloadUrl = downloadUrl,
+          outputDirectory = outputDirectory
+        )
 
         mapOf(
           "success" to true,
-          "data" to mapOf(
-            "output_path" to outputFile.uri.toString(),
-            "total_bytes" to totalBytes
-          )
+          "data" to mapOf("message" to "LibriVox download enqueued")
         )
       } catch (e: Exception) {
         mapOf("success" to false, "error" to e.message)

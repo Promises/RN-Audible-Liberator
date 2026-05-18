@@ -530,6 +530,21 @@ impl PersistentDownloadManager {
             });
         }
 
+        // Update total_bytes from Content-Length if not already known
+        if task.total_bytes == 0 {
+            if let Some(content_length) = response.content_length() {
+                let total = content_length + task.bytes_downloaded;
+                task.total_bytes = total;
+                sqlx::query(
+                    "UPDATE DownloadTasks SET total_bytes = ? WHERE task_id = ?"
+                )
+                .bind(total as i64)
+                .bind(&task.task_id)
+                .execute(&*pool)
+                .await?;
+            }
+        }
+
         // CRITICAL: Verify file size matches bytes_downloaded before resuming
         if task.bytes_downloaded > 0 {
             if let Ok(metadata) = fs::metadata(&task.download_path).await {

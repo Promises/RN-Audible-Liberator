@@ -180,6 +180,345 @@ class DownloadOrchestrator(
     }
 
     /**
+     * Enqueue a LibriVox book for download (no license, no decryption)
+     *
+     * Uses the same Rust PersistentDownloadManager and monitoring pipeline as Audible,
+     * but skips license fetching, decryption, and audio validation since LibriVox
+     * files are plain MP3s.
+     */
+    suspend fun enqueueLibrivoxBook(
+        librivoxId: String,
+        title: String,
+        author: String,
+        downloadUrl: String,
+        outputDirectory: String
+    ): String = withContext(Dispatchers.IO) {
+        val asin = "librivox_$librivoxId"
+        Log.d(TAG, "Enqueueing LibriVox book: $asin - $title")
+
+        try {
+            // Prepare paths - preserve original file extension from URL
+            val cacheDir = context.cacheDir
+            val audiobooksDir = File(cacheDir, "audiobooks")
+            audiobooksDir.mkdirs()
+
+            // Detect extension from URL - check query params (archive.org uses &file=) and path
+            val parsedUrl = Uri.parse(downloadUrl)
+            val fileParam = parsedUrl.getQueryParameter("file")
+            val urlForExt = fileParam ?: parsedUrl.lastPathSegment ?: downloadUrl
+            val extension = urlForExt.substringAfterLast('.', "mp3").substringBefore('?').lowercase()
+            val downloadPath = File(audiobooksDir, "$asin.$extension").absolutePath
+
+            // Enqueue download in Rust manager (no license needed, no special headers)
+            val enqueueParams = JSONObject().apply {
+                put("db_path", dbPath)
+                put("asin", asin)
+                put("title", title)
+                put("download_url", downloadUrl)
+                put("total_bytes", 0) // Unknown until download starts
+                put("download_path", downloadPath)
+                put("output_path", downloadPath) // Same file, no conversion needed
+                put("request_headers", JSONObject())
+            }
+
+            val enqueueResult = ExpoRustBridgeModule.nativeEnqueueDownload(enqueueParams.toString())
+            val parsedEnqueue = parseJsonResponse(enqueueResult)
+
+            if (parsedEnqueue["success"] != true) {
+                throw Exception("Failed to enqueue: ${parsedEnqueue["error"]}")
+            }
+
+            val enqueueData = parsedEnqueue["data"] as? Map<*, *>
+            val taskId = enqueueData?.get("task_id") as? String ?: throw Exception("No task ID")
+
+            Log.d(TAG, "LibriVox download enqueued: $taskId")
+
+            // Store output directory for the copy step (reuse conversion keys storage)
+            storeConversionKeysInDb(taskId, "", "", outputDirectory)
+
+            // Start monitoring (uses a simplified path that skips decryption)
+            startMonitoringLibrivoxDownload(
+                taskId = taskId,
+                asin = asin,
+                title = title,
+                author = author,
+                downloadPath = downloadPath,
+                outputDirectory = outputDirectory
+            )
+
+            taskId
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to enqueue LibriVox book", e)
+            errorCallback?.invoke(asin, title, e.message ?: "Unknown error")
+            throw e
+        }
+    }
+
+    /**
+     * Monitor a LibriVox download and copy to final destination on completion.
+     * Skips decryption and validation — MP3 files are ready to copy directly.
+     */
+    private fun startMonitoringLibrivoxDownload(
+        taskId: String,
+        asin: String,
+        title: String,
+        author: String,
+        downloadPath: String,
+        outputDirectory: String
+    ) {
+        monitoringJobs[asin]?.cancel()
+
+        progressCallback?.invoke(asin, "downloading", 0.0, 0, 0)
+
+        val job = scope.launch {
+            try {
+                while (isActive) {
+                    delay(2000)
+
+                    val statusParams = JSONObject().apply {
+                        put("db_path", dbPath)
+                        put("task_id", taskId)
+                    }
+
+                    val statusResult = ExpoRustBridgeModule.nativeGetDownloadTask(statusParams.toString())
+                    val parsedStatus = parseJsonResponse(statusResult)
+
+                    if (parsedStatus["success"] == true) {
+                        val taskData = parsedStatus["data"] as? Map<*, *>
+                        val status = taskData?.get("status") as? String
+                        val bytesDownloaded = (taskData?.get("bytes_downloaded") as? Number)?.toLong() ?: 0L
+                        val taskTotalBytes = (taskData?.get("total_bytes") as? Number)?.toLong() ?: 0L
+                        val percentage = if (taskTotalBytes > 0) {
+                            (bytesDownloaded.toDouble() / taskTotalBytes) * 100.0
+                        } else 0.0
+
+                        when (status) {
+                            "downloading" -> {
+                                progressCallback?.invoke(asin, "downloading", percentage, bytesDownloaded, taskTotalBytes)
+                            }
+                            "paused" -> {
+                                // Continue monitoring, skip progress updates
+                            }
+                            "completed" -> {
+                                Log.d(TAG, "LibriVox download completed for $asin, copying to destination")
+                                try {
+                                    triggerLibrivoxCopy(asin, title, downloadPath, outputDirectory, taskId)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                }
+                                break
+                            }
+                            "failed" -> {
+                                val error = taskData?.get("error") as? String ?: "Unknown error"
+                                errorCallback?.invoke(asin, title, error)
+                                break
+                            }
+                            "cancelled" -> break
+                        }
+                    } else {
+                        Log.e(TAG, "Failed to check LibriVox status: ${parsedStatus["error"]}")
+                        break
+                    }
+                }
+            } catch (e: Exception) {
+                if (e !is CancellationException) {
+                    Log.e(TAG, "Error monitoring LibriVox download $asin", e)
+                }
+            } finally {
+                monitoringJobs.remove(asin)
+            }
+        }
+
+        monitoringJobs[asin] = job
+    }
+
+    /**
+     * Copy a completed LibriVox download to the final SAF destination.
+     * No decryption or validation needed.
+     */
+    private suspend fun triggerLibrivoxCopy(
+        asin: String,
+        title: String,
+        downloadPath: String,
+        outputDirectory: String,
+        taskId: String
+    ) = withContext(Dispatchers.IO) {
+        try {
+            updateTaskStatusInDb(taskId, "copying")
+            progressCallback?.invoke(asin, "copying", 0.0, 0, 0)
+
+            val finalPath = copyLibrivoxToFinalDestination(asin, title, downloadPath, outputDirectory)
+
+            File(downloadPath).delete()
+
+            updateTaskStatusInDb(taskId, "completed", finalPath)
+            clearManuallyPaused(asin)
+            completionCallback?.invoke(asin, title, finalPath)
+        } catch (e: Exception) {
+            Log.e(TAG, "LibriVox copy failed for $asin", e)
+            updateTaskStatusWithError(taskId, "failed", e.message ?: "Copy failed")
+            errorCallback?.invoke(asin, title, e.message ?: "Copy failed")
+        }
+    }
+
+    /**
+     * Copy or extract a LibriVox download to the user's SAF directory.
+     * If the file is a zip, extracts audio files into Author/Title/.
+     * Otherwise copies the single file directly.
+     */
+    private suspend fun copyLibrivoxToFinalDestination(
+        asin: String,
+        title: String,
+        downloadPath: String,
+        outputDirectory: String
+    ): String = withContext(Dispatchers.IO) {
+        val cachedFile = File(downloadPath)
+
+        val treeUri = Uri.parse(outputDirectory)
+        val docDir = if (outputDirectory.startsWith("content://")) {
+            DocumentFile.fromTreeUri(context, treeUri)
+                ?: throw Exception("Invalid SAF URI")
+        } else null
+
+        if (docDir != null && !docDir.canWrite()) {
+            throw Exception("No write permission for SAF directory")
+        }
+
+        // Build directory path using naming pattern (Author/Title/)
+        val filePath = buildFilePathForBook(asin)
+        Log.d(TAG, "Using file path: $filePath")
+
+        val pathParts = filePath.split('/')
+        val directories = pathParts.dropLast(1)
+
+        // Navigate/create subdirectories
+        var safTargetDir: DocumentFile? = null
+        var regularTargetPath: String? = null
+
+        if (docDir != null) {
+            var currentDir: DocumentFile = docDir
+            for (dirName in directories) {
+                val existing = currentDir.findFile(dirName)
+                currentDir = if (existing != null && existing.isDirectory) {
+                    existing
+                } else {
+                    currentDir.createDirectory(dirName)
+                        ?: throw Exception("Failed to create directory: $dirName")
+                }
+            }
+            safTargetDir = currentDir
+        } else {
+            val dir = File(outputDirectory, directories.joinToString("/"))
+            dir.mkdirs()
+            regularTargetPath = dir.absolutePath
+        }
+
+        val extension = cachedFile.extension.lowercase()
+
+        val finalPath = if (extension == "zip") {
+            extractZipToDirectory(cachedFile, safTargetDir, regularTargetPath)
+        } else {
+            copySingleFileToDirectory(cachedFile, extension, pathParts.last(), safTargetDir, regularTargetPath)
+        }
+
+        cachedFile.delete()
+        Log.d(TAG, "LibriVox files saved to: $finalPath")
+        finalPath
+    }
+
+    /**
+     * Extract a zip file's audio contents into the target SAF directory.
+     */
+    private fun extractZipToDirectory(
+        zipFile: File,
+        safDir: DocumentFile?,
+        regularDirPath: String?
+    ): String {
+        var extractedCount = 0
+        var firstPath: String? = null
+
+        java.util.zip.ZipInputStream(zipFile.inputStream().buffered()).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory) {
+                    val entryName = File(entry.name).name // strip any directory prefix
+                    val entryExt = entryName.substringAfterLast('.', "").lowercase()
+
+                    // Only extract audio files
+                    if (entryExt in listOf("mp3", "m4a", "m4b", "ogg", "flac", "opus", "wav")) {
+                        if (safDir != null) {
+                            // SAF path
+                            safDir.findFile(entryName)?.delete()
+                            val mimeType = when (entryExt) {
+                                "mp3" -> "audio/mpeg"
+                                "m4a", "m4b" -> "audio/mp4"
+                                "ogg" -> "audio/ogg"
+                                "flac" -> "audio/flac"
+                                "opus" -> "audio/opus"
+                                "wav" -> "audio/wav"
+                                else -> "audio/*"
+                            }
+                            val outputFile = safDir.createFile(mimeType, entryName)
+                                ?: throw Exception("Failed to create file: $entryName")
+                            context.contentResolver.openOutputStream(outputFile.uri)?.use { out ->
+                                zis.copyTo(out)
+                            } ?: throw Exception("Failed to write: $entryName")
+                            if (firstPath == null) firstPath = outputFile.uri.toString()
+                        } else {
+                            // Regular file path
+                            val outputFile = File(regularDirPath!!, entryName)
+                            outputFile.outputStream().use { out ->
+                                zis.copyTo(out)
+                            }
+                            if (firstPath == null) firstPath = outputFile.absolutePath
+                        }
+                        extractedCount++
+                    }
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+
+        Log.d(TAG, "Extracted $extractedCount audio files from zip")
+        if (extractedCount == 0) throw Exception("No audio files found in zip")
+        return firstPath!!
+    }
+
+    /**
+     * Copy a single audio file into the target directory.
+     */
+    private fun copySingleFileToDirectory(
+        sourceFile: File,
+        extension: String,
+        fileName: String,
+        safDir: DocumentFile?,
+        regularDirPath: String?
+    ): String {
+        // Replace extension in filename
+        val targetName = fileName.replaceAfterLast('.', extension)
+        val mimeType = when (extension) {
+            "mp3" -> "audio/mpeg"
+            "m4a", "m4b" -> "audio/mp4"
+            else -> "audio/*"
+        }
+
+        return if (safDir != null) {
+            safDir.findFile(targetName)?.delete()
+            val outputFile = safDir.createFile(mimeType, targetName)
+                ?: throw Exception("Failed to create file: $targetName")
+            context.contentResolver.openOutputStream(outputFile.uri)?.use { out ->
+                sourceFile.inputStream().use { inp -> inp.copyTo(out) }
+            } ?: throw Exception("Failed to write: $targetName")
+            outputFile.uri.toString()
+        } else {
+            val outputFile = File(regularDirPath!!, targetName)
+            sourceFile.copyTo(outputFile, overwrite = true)
+            outputFile.absolutePath
+        }
+    }
+
+    /**
      * Start monitoring a download for completion
      */
     private fun startMonitoringDownload(

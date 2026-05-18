@@ -33,11 +33,14 @@ class DownloadService : Service() {
         private const val ACTION_STOP_MONITORING = "expo.modules.rustbridge.STOP_MONITORING"
         private const val ACTION_SET_WIFI_ONLY = "expo.modules.rustbridge.SET_WIFI_ONLY"
         private const val ACTION_RETRY_CONVERSION = "expo.modules.rustbridge.RETRY_CONVERSION"
+        private const val ACTION_ENQUEUE_LIBRIVOX = "expo.modules.rustbridge.ENQUEUE_LIBRIVOX"
 
         private const val EXTRA_DB_PATH = "db_path"
         private const val EXTRA_ACCOUNT_JSON = "account_json"
         private const val EXTRA_ASIN = "asin"
         private const val EXTRA_TITLE = "title"
+        private const val EXTRA_AUTHOR = "author"
+        private const val EXTRA_DOWNLOAD_URL = "download_url"
         private const val EXTRA_OUTPUT_DIR = "output_dir"
         private const val EXTRA_QUALITY = "quality"
         private const val EXTRA_TASK_ID = "task_id"
@@ -132,6 +135,29 @@ class DownloadService : Service() {
 
             startUserInitiatedService(context, intent)
         }
+
+        /**
+         * Enqueue a LibriVox book download (no DRM, no decryption).
+         */
+        fun enqueueLibrivoxBook(
+            context: Context,
+            librivoxId: String,
+            title: String,
+            author: String,
+            downloadUrl: String,
+            outputDirectory: String
+        ) {
+            val intent = Intent(context, DownloadService::class.java).apply {
+                action = ACTION_ENQUEUE_LIBRIVOX
+                putExtra(EXTRA_ASIN, "librivox_$librivoxId")
+                putExtra(EXTRA_TITLE, title)
+                putExtra(EXTRA_AUTHOR, author)
+                putExtra(EXTRA_DOWNLOAD_URL, downloadUrl)
+                putExtra(EXTRA_OUTPUT_DIR, outputDirectory)
+            }
+
+            startUserInitiatedService(context, intent)
+        }
     }
 
     private lateinit var orchestrator: DownloadOrchestrator
@@ -216,6 +242,7 @@ class DownloadService : Service() {
             ACTION_STOP_MONITORING -> handleStopMonitoring(intent)
             ACTION_SET_WIFI_ONLY -> handleSetWifiOnly(intent)
             ACTION_RETRY_CONVERSION -> handleRetryConversion(intent)
+            ACTION_ENQUEUE_LIBRIVOX -> handleEnqueueLibrivox(intent)
         }
 
         return START_NOT_STICKY
@@ -244,7 +271,7 @@ class DownloadService : Service() {
     }
 
     private fun requiresForeground(action: String?): Boolean {
-        return action == ACTION_ENQUEUE_DOWNLOAD || action == ACTION_RETRY_CONVERSION
+        return action == ACTION_ENQUEUE_DOWNLOAD || action == ACTION_RETRY_CONVERSION || action == ACTION_ENQUEUE_LIBRIVOX
     }
 
     private fun startDataSyncForeground(notification: Notification) {
@@ -365,6 +392,39 @@ class DownloadService : Service() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error retrying conversion", e)
+            }
+        }
+    }
+
+    private fun handleEnqueueLibrivox(intent: Intent) {
+        val asin = intent.getStringExtra(EXTRA_ASIN) ?: return
+        val title = intent.getStringExtra(EXTRA_TITLE) ?: return
+        val author = intent.getStringExtra(EXTRA_AUTHOR) ?: ""
+        val downloadUrl = intent.getStringExtra(EXTRA_DOWNLOAD_URL) ?: return
+        val outputDir = intent.getStringExtra(EXTRA_OUTPUT_DIR) ?: return
+
+        // Extract librivoxId from the "librivox_" prefixed asin
+        val librivoxId = asin.removePrefix("librivox_")
+
+        Log.d(TAG, "Enqueueing LibriVox download: $asin - $title")
+
+        currentDownload = DownloadInfo(
+            asin = asin,
+            title = title,
+            author = author,
+            totalBytes = 0
+        )
+
+        serviceScope.launch {
+            try {
+                orchestrator.enqueueLibrivoxBook(librivoxId, title, author, downloadUrl, outputDir)
+                Log.d(TAG, "LibriVox book enqueued successfully: $asin")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to enqueue LibriVox book", e)
+                currentDownload?.let { download ->
+                    notificationManager.showError(download.title, download.author, e.message ?: "Unknown error")
+                }
+                currentDownload = null
             }
         }
     }

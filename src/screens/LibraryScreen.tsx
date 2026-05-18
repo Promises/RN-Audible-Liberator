@@ -34,7 +34,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as DocumentPicker from 'expo-document-picker';
 import {Directory, Paths} from 'expo-file-system';
 import {getDatabasePath} from '../utils/appPaths';
-import {getBookSections} from '../services/librivox';
+import {getBook} from '../services/librivox';
 import {
     buildLibraryExportText,
     exportLibrary,
@@ -523,30 +523,26 @@ export default function LibraryScreen() {
                 return;
             }
 
-            // LibriVox books: direct MP3 download, no auth needed
+            // LibriVox books: background download, no auth needed
             if (book.source === 'librivox') {
                 console.log('[LibraryScreen] LibriVox download:', book.title);
                 const librivoxId = book.audible_product_id.replace('librivox_', '');
+                const authorText = Array.isArray(book.authors) ? book.authors.join(', ') : (book.authors || 'Unknown Author');
 
-                Alert.alert(
-                    'Downloading',
-                    `Downloading "${book.title}"... This may take a while.`
-                );
-
-                // Use the cover_url field which stores the archive.org cover,
-                // but we need the zip file URL. For now, construct it from LibriVox API.
-                // The download URL is fetched from the API or stored in the book data.
                 try {
-                    // Import the LibriVox API to get download URL
-                    const sections = await getBookSections(librivoxId);
-                    if (sections.length > 0 && sections[0].listen_url) {
+                    const librivoxBook = await getBook(librivoxId);
+                    if (librivoxBook?.url_zip_file) {
                         await downloadLibrivoxFile(
                             librivoxId,
                             book.title,
-                            sections[0].listen_url,
+                            authorText,
+                            librivoxBook.url_zip_file,
                             downloadDir
                         );
-                        Alert.alert('Download Complete', `"${book.title}" has been downloaded.`);
+                        Alert.alert(
+                            'Download Started',
+                            `"${book.title}" is downloading. Check the notification for progress.`
+                        );
                     } else {
                         Alert.alert('Error', 'Could not find download URL for this book.');
                     }

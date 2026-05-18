@@ -893,14 +893,15 @@ export interface ExpoRustBridgeModule {
   insertLibrivoxBook(dbPath: string, bookJson: string): Promise<RustResponse<{ book_id: number }>>;
 
   /**
-   * Download a LibriVox MP3 file directly to the output directory.
+   * Enqueue a LibriVox MP3 file for background download.
    */
   downloadLibrivoxFile(
     librivoxId: string,
     title: string,
+    author: string | null,
     downloadUrl: string,
     outputDirectory: string
-  ): Promise<RustResponse<{ output_path: string; total_bytes: number }>>;
+  ): Promise<RustResponse<{ message: string }>>;
 }
 
 // ============================================================================
@@ -1876,28 +1877,31 @@ async function insertLibrivoxBook(
 }
 
 /**
- * Download a LibriVox MP3 file directly to the output directory.
- * Skips the Audible DRM pipeline — just a simple HTTP download.
+ * Enqueue a LibriVox MP3 file for download using the background download service.
+ * Uses the same download pipeline as Audible (progress, pause/resume, notifications)
+ * but skips decryption and validation since LibriVox files are plain MP3s.
  *
  * @param librivoxId - LibriVox book ID
  * @param title - Book title
+ * @param author - Book author
  * @param downloadUrl - Direct MP3 download URL
  * @param outputDirectory - SAF URI for the output directory
- * @returns Output path and total bytes
  */
 async function downloadLibrivoxFile(
   librivoxId: string,
   title: string,
+  author: string,
   downloadUrl: string,
   outputDirectory: string
-): Promise<{ output_path: string; total_bytes: number }> {
+): Promise<void> {
   const response = await NativeModule!.downloadLibrivoxFile(
     librivoxId,
     title,
+    author,
     downloadUrl,
     outputDirectory
   );
-  return unwrapResult(response);
+  unwrapResult(response);
 }
 
 // ============================================================================

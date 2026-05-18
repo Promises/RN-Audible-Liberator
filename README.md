@@ -2,7 +2,9 @@
 
 Manage your audiobook library. Browse free LibriVox books and sync your Audible collection.
 
-**[henning.tech/librisync](https://henning.tech/librisync)** · [Google Play](https://play.google.com/store/apps/details?id=tech.henning.librisync)
+**[henning.tech/librisync](https://henning.tech/librisync)** · 
+
+[//]: # ([Google Play]&#40;https://play.google.com/store/apps/details?id=tech.henning.librisync&#41;)
 
 ## Features
 
@@ -35,7 +37,7 @@ No tracking. No analytics. No ads. No accounts required for LibriVox browsing. A
 
 ## Installation
 
-**Google Play**: [Download from Google Play](https://play.google.com/store/apps/details?id=tech.henning.librisync)
+[//]: # (**Google Play**: [Download from Google Play]&#40;https://play.google.com/store/apps/details?id=tech.henning.librisync&#41;)
 
 **GitHub Releases**: Download the latest APK from [Releases](https://github.com/Promises/LibriSync/releases)
 

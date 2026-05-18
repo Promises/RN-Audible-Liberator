@@ -52,7 +52,8 @@ export default {
       ],
       "expo-secure-store",
       "./plugins/withDownloadService",
-      "./plugins/withFFmpegKit"
+      "./plugins/withFFmpegKit",
+      "./plugins/withReleaseSigning"
     ],
     extra: {
       eas: {

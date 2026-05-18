@@ -48,6 +48,25 @@ show_help() {
     echo "  $0 clean    # Clean up build artifacts"
 }
 
+# Function to load signing credentials from credentials.json
+load_credentials() {
+    local creds_file="credentials.json"
+    if [ -f "$creds_file" ] && command -v python3 &>/dev/null; then
+        echo -e "${GREEN}Loading signing credentials from credentials.json...${NC}"
+        local keystore_path
+        keystore_path=$(python3 -c "import json; print(json.load(open('$creds_file'))['android']['keystore']['keystorePath'])")
+        if [ -f "$keystore_path" ]; then
+            export KEYSTORE_FILE=$(base64 < "$keystore_path")
+        fi
+        export KEYSTORE_PASSWORD=$(python3 -c "import json; print(json.load(open('$creds_file'))['android']['keystore']['keystorePassword'])")
+        export KEY_ALIAS=$(python3 -c "import json; print(json.load(open('$creds_file'))['android']['keystore']['keyAlias'])")
+        export KEY_PASSWORD=$(python3 -c "import json; print(json.load(open('$creds_file'))['android']['keystore']['keyPassword'])")
+        echo -e "${GREEN}✓ Credentials loaded${NC}"
+    elif [ -z "$KEYSTORE_FILE" ]; then
+        echo -e "${YELLOW}Warning: No credentials.json found and KEYSTORE_FILE not set. Build may be unsigned.${NC}"
+    fi
+}
+
 # Function to build the app
 build_app() {
     # Validate GIT_REPO is set
@@ -61,6 +80,11 @@ build_app() {
         echo "Or use it inline:"
         echo "  GIT_REPO=https://github.com/user/repo.git $0 build"
         exit 1
+    fi
+
+    # Load credentials from credentials.json if env vars not already set
+    if [ -z "$KEYSTORE_FILE" ] && [ "$BUILD_TYPE" = "release" ]; then
+        load_credentials
     fi
 
     echo -e "${GREEN}Building LibriSync in Docker...${NC}"

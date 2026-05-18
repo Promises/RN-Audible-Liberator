@@ -27,12 +27,21 @@ import {
     getPrimaryAccount,
     saveAccount,
     downloadLibrivoxFile,
+    copyTextToClipboard,
 } from '../../modules/expo-rust-bridge';
 import type {Book, Account, DownloadTask} from '../../modules/expo-rust-bridge';
 import * as SecureStore from 'expo-secure-store';
 import * as DocumentPicker from 'expo-document-picker';
+import {Directory, Paths} from 'expo-file-system';
 import {getDatabasePath} from '../utils/appPaths';
 import {getBookSections} from '../services/librivox';
+import {
+    buildLibraryExportText,
+    exportLibrary,
+    type LibraryExportDirection,
+    type LibraryExportFormat,
+    type LibraryExportSortField,
+} from '../utils/libraryExport';
 
 const DOWNLOAD_PATH_KEY = 'download_path';
 const LIBRARY_PREFS_KEY = 'library_preferences';
@@ -40,6 +49,15 @@ const LIBRARY_PREFS_KEY = 'library_preferences';
 type SortField = 'title' | 'release_date' | 'date_added' | 'series' | 'length';
 type SortDirection = 'asc' | 'desc';
 type SourceFilter = 'all' | 'audible' | 'librivox';
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+const EXPORT_FORMAT_OPTIONS: Array<{ format: LibraryExportFormat; label: string; icon: IoniconName }> = [
+    {format: 'csv', label: 'CSV', icon: 'grid-outline'},
+    {format: 'txt', label: 'TXT', icon: 'list-outline'},
+    {format: 'json', label: 'JSON', icon: 'code-slash-outline'},
+    {format: 'xlsx', label: 'XLSX', icon: 'document-text-outline'},
+    {format: 'png', label: 'PNG', icon: 'image-outline'},
+];
 
 interface LibraryPreferences {
     sortField: SortField;
@@ -83,6 +101,16 @@ export default function LibraryScreen() {
 
     // Controls visibility
     const [showControls, setShowControls] = useState(false);
+    const [showExportControls, setShowExportControls] = useState(false);
+
+    // Export state
+    const [exportFormats, setExportFormats] = useState<LibraryExportFormat[]>(['csv', 'txt', 'json', 'xlsx', 'png']);
+    const [exportSortField, setExportSortField] = useState<LibraryExportSortField>('title');
+    const [exportSortDirection, setExportSortDirection] = useState<LibraryExportDirection>('asc');
+    const [exportGroupByAuthor, setExportGroupByAuthor] = useState(false);
+    const [exportGroupBySeries, setExportGroupBySeries] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+    const [isCopyingExportText, setIsCopyingExportText] = useState(false);
 
     // Debounce search
     const searchTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -277,6 +305,131 @@ export default function LibraryScreen() {
         setSortDirection(direction);
         savePreferences(field, direction);
         setShowSortModal(false);
+    };
+
+    const handleToggleSearchControls = () => {
+        const nextValue = !showControls;
+        setShowControls(nextValue);
+        if (nextValue) {
+            setShowExportControls(false);
+        }
+    };
+
+    const handleToggleExportControls = () => {
+        const nextValue = !showExportControls;
+        setShowExportControls(nextValue);
+        if (nextValue) {
+            setShowControls(false);
+        }
+    };
+
+    const handleToggleExportFormat = (format: LibraryExportFormat) => {
+        setExportFormats(previousFormats => {
+            if (previousFormats.includes(format)) {
+                return previousFormats.filter(value => value !== format);
+            }
+            return [...previousFormats, format];
+        });
+    };
+
+    const loadBooksForExport = (): Book[] => {
+        const dbPath = getDatabasePath();
+        initializeDatabase(dbPath);
+
+        const pageSize = 500;
+        const books: Book[] = [];
+        let total = 0;
+
+        do {
+            const response = getBooksWithFilters(
+                dbPath,
+                books.length,
+                pageSize,
+                searchQuery || null,
+                selectedSeries || null,
+                selectedCategory || null,
+                exportSortField === 'title' ? 'title' : 'length',
+                exportSortDirection,
+                sourceFilter === 'all' ? null : sourceFilter
+            );
+
+            books.push(...response.books);
+            total = response.total_count;
+            if (response.books.length === 0) break;
+        } while (books.length < total);
+
+        return books;
+    };
+
+    const handleExportLibrary = async () => {
+        if (exportFormats.length === 0) {
+            Alert.alert('Export Library', 'Choose at least one format.');
+            return;
+        }
+
+        try {
+            setIsExporting(true);
+            const books = loadBooksForExport();
+
+            if (books.length === 0) {
+                Alert.alert('Export Library', 'No audiobooks match the current search and filters.');
+                return;
+            }
+
+            const directory = await Directory.pickDirectoryAsync(
+                Platform.OS === 'android' ? undefined : Paths.document.uri
+            );
+            const files = await exportLibrary(books, directory, {
+                formats: exportFormats,
+                sortField: exportSortField,
+                sortDirection: exportSortDirection,
+                groupByAuthor: exportGroupByAuthor,
+                groupBySeries: exportGroupBySeries,
+            });
+
+            Alert.alert(
+                'Export Complete',
+                `Saved ${files.length} file${files.length === 1 ? '' : 's'}:\n\n${files.map(file => file.name).join('\n')}`
+            );
+            setShowExportControls(false);
+        } catch (error: any) {
+            const message = error?.message || String(error);
+            if (message.toLowerCase().includes('cancel')) {
+                return;
+            }
+            console.error('[LibraryScreen] Export error:', error);
+            Alert.alert('Export Failed', message);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleCopyExportText = async () => {
+        try {
+            setIsCopyingExportText(true);
+            const books = loadBooksForExport();
+
+            if (books.length === 0) {
+                Alert.alert('Copy Export Text', 'No audiobooks match the current search and filters.');
+                return;
+            }
+
+            const text = buildLibraryExportText(books, {
+                formats: ['txt'],
+                sortField: exportSortField,
+                sortDirection: exportSortDirection,
+                groupByAuthor: exportGroupByAuthor,
+                groupBySeries: exportGroupBySeries,
+            });
+
+            copyTextToClipboard(text);
+            Alert.alert('Copied', `Formatted TXT export for ${books.length} audiobook${books.length === 1 ? '' : 's'} copied to clipboard.`);
+        } catch (error: any) {
+            console.error('[LibraryScreen] Copy export text error:', error);
+            Alert.alert('Copy Failed', error?.message || String(error));
+        } finally {
+            setIsCopyingExportText(false);
+        }
     };
 
     const handleClearFilters = () => {
@@ -858,16 +1011,37 @@ export default function LibraryScreen() {
             <View style={styles.header}>
                 <View style={styles.headerTitleRow}>
                     <Text style={styles.headerTitle}>Library</Text>
-                    <TouchableOpacity
-                        style={styles.toggleControlsButton}
-                        onPress={() => setShowControls(!showControls)}
-                    >
-                        <Ionicons
-                            name={showControls ? 'close' : 'search'}
-                            size={24}
-                            color={colors.textPrimary}
-                        />
-                    </TouchableOpacity>
+                    <View style={styles.headerActions}>
+                        <TouchableOpacity
+                            style={[
+                                styles.toggleControlsButton,
+                                showExportControls && styles.toggleControlsButtonActive
+                            ]}
+                            onPress={handleToggleExportControls}
+                            accessibilityLabel="Export library"
+                        >
+                            <Ionicons
+                                name={showExportControls ? 'close' : 'download-outline'}
+                                size={24}
+                                color={colors.textPrimary}
+                            />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.toggleControlsButton,
+                                showControls && styles.toggleControlsButtonActive
+                            ]}
+                            onPress={handleToggleSearchControls}
+                            accessibilityLabel="Search library"
+                        >
+                            <Ionicons
+                                name={showControls ? 'close' : 'search'}
+                                size={24}
+                                color={colors.textPrimary}
+                            />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {showControls && (
@@ -923,6 +1097,134 @@ export default function LibraryScreen() {
                             </TouchableOpacity>
                         </View>
                     </>
+                )}
+
+                {showExportControls && (
+                    <View style={styles.exportContainer}>
+                        <Text style={styles.exportSectionLabel}>Formats</Text>
+                        <View style={styles.exportFormatGrid}>
+                            {EXPORT_FORMAT_OPTIONS.map(option => {
+                                const selected = exportFormats.includes(option.format);
+                                return (
+                                    <TouchableOpacity
+                                        key={option.format}
+                                        style={[
+                                            styles.exportFormatButton,
+                                            selected && styles.exportOptionSelected
+                                        ]}
+                                        onPress={() => handleToggleExportFormat(option.format)}
+                                    >
+                                        <Ionicons
+                                            name={option.icon}
+                                            size={18}
+                                            color={selected ? colors.accent : colors.textSecondary}
+                                        />
+                                        <Text style={styles.exportFormatText}>{option.label}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        <Text style={styles.exportSectionLabel}>Sort</Text>
+                        <View style={styles.exportSegmentedRow}>
+                            <TouchableOpacity
+                                style={[
+                                    styles.exportSegmentButton,
+                                    exportSortField === 'title' && styles.exportOptionSelected
+                                ]}
+                                onPress={() => setExportSortField('title')}
+                            >
+                                <Text style={styles.exportSegmentText}>Name</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[
+                                    styles.exportSegmentButton,
+                                    exportSortField === 'length' && styles.exportOptionSelected
+                                ]}
+                                onPress={() => setExportSortField('length')}
+                            >
+                                <Text style={styles.exportSegmentText}>Length</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.exportDirectionButton}
+                                onPress={() => setExportSortDirection(exportSortDirection === 'asc' ? 'desc' : 'asc')}
+                            >
+                                <Ionicons
+                                    name={exportSortDirection === 'asc' ? 'arrow-up' : 'arrow-down'}
+                                    size={18}
+                                    color={colors.textPrimary}
+                                />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={styles.exportSectionLabel}>Group</Text>
+                        <View style={styles.exportSegmentedRow}>
+                            <TouchableOpacity
+                                style={[
+                                    styles.exportToggleButton,
+                                    exportGroupByAuthor && styles.exportOptionSelected
+                                ]}
+                                onPress={() => setExportGroupByAuthor(!exportGroupByAuthor)}
+                            >
+                                <Ionicons
+                                    name={exportGroupByAuthor ? 'checkbox' : 'square-outline'}
+                                    size={18}
+                                    color={exportGroupByAuthor ? colors.accent : colors.textSecondary}
+                                />
+                                <Text style={styles.exportSegmentText}>Author</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[
+                                    styles.exportToggleButton,
+                                    exportGroupBySeries && styles.exportOptionSelected
+                                ]}
+                                onPress={() => setExportGroupBySeries(!exportGroupBySeries)}
+                            >
+                                <Ionicons
+                                    name={exportGroupBySeries ? 'checkbox' : 'square-outline'}
+                                    size={18}
+                                    color={exportGroupBySeries ? colors.accent : colors.textSecondary}
+                                />
+                                <Text style={styles.exportSegmentText}>Series</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.exportActionButton,
+                                (isExporting || isCopyingExportText || exportFormats.length === 0) && styles.exportActionButtonDisabled
+                            ]}
+                            onPress={handleExportLibrary}
+                            disabled={isExporting || isCopyingExportText || exportFormats.length === 0}
+                        >
+                            {isExporting ? (
+                                <ActivityIndicator size="small" color={colors.background} />
+                            ) : (
+                                <Ionicons name="download" size={18} color={colors.background} />
+                            )}
+                            <Text style={styles.exportActionText}>
+                                {isExporting ? 'Exporting...' : 'Export'}
+                            </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.exportCopyButton,
+                                (isExporting || isCopyingExportText) && styles.exportActionButtonDisabled
+                            ]}
+                            onPress={handleCopyExportText}
+                            disabled={isExporting || isCopyingExportText}
+                        >
+                            {isCopyingExportText ? (
+                                <ActivityIndicator size="small" color={colors.accent} />
+                            ) : (
+                                <Ionicons name="copy-outline" size={18} color={colors.accent} />
+                            )}
+                            <Text style={styles.exportCopyText}>
+                                {isCopyingExportText ? 'Copying...' : 'Copy TXT'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
                 )}
 
                 <Text style={styles.headerSubtitle}>
@@ -1281,9 +1583,21 @@ const createStyles = (theme: Theme) => ({
     headerTitle: {
         ...theme.typography.title,
     },
+    headerActions: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: theme.spacing.sm,
+    },
     toggleControlsButton: {
         padding: theme.spacing.xs,
         paddingHorizontal: theme.spacing.sm,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    toggleControlsButtonActive: {
+        borderColor: theme.colors.accent,
+        backgroundColor: theme.colors.accent + '20',
     },
     searchContainer: {
         flexDirection: 'row' as const,
@@ -1326,6 +1640,128 @@ const createStyles = (theme: Theme) => ({
     controlButtonText: {
         ...theme.typography.caption,
         fontWeight: '600' as const,
+    },
+    exportContainer: {
+        backgroundColor: theme.colors.backgroundSecondary,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        padding: theme.spacing.md,
+        marginBottom: theme.spacing.md,
+        gap: theme.spacing.sm,
+    },
+    exportSectionLabel: {
+        ...theme.typography.caption,
+        fontWeight: '700' as const,
+        color: theme.colors.textPrimary,
+    },
+    exportFormatGrid: {
+        flexDirection: 'row' as const,
+        flexWrap: 'wrap' as const,
+        gap: theme.spacing.sm,
+    },
+    exportFormatButton: {
+        flexBasis: '48%' as const,
+        flexGrow: 1,
+        minHeight: 42,
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        gap: theme.spacing.xs,
+        backgroundColor: theme.colors.background,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        paddingHorizontal: theme.spacing.sm,
+    },
+    exportFormatText: {
+        ...theme.typography.caption,
+        fontWeight: '700' as const,
+        color: theme.colors.textPrimary,
+    },
+    exportSegmentedRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: theme.spacing.sm,
+    },
+    exportSegmentButton: {
+        flex: 1,
+        minHeight: 40,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        backgroundColor: theme.colors.background,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        paddingHorizontal: theme.spacing.sm,
+    },
+    exportDirectionButton: {
+        width: 44,
+        height: 40,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        backgroundColor: theme.colors.background,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+    },
+    exportToggleButton: {
+        flex: 1,
+        minHeight: 40,
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        gap: theme.spacing.xs,
+        backgroundColor: theme.colors.background,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        paddingHorizontal: theme.spacing.sm,
+    },
+    exportOptionSelected: {
+        borderColor: theme.colors.accent,
+        backgroundColor: theme.colors.accent + '20',
+    },
+    exportSegmentText: {
+        ...theme.typography.caption,
+        fontWeight: '700' as const,
+        color: theme.colors.textPrimary,
+    },
+    exportActionButton: {
+        minHeight: 44,
+        marginTop: theme.spacing.xs,
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        gap: theme.spacing.sm,
+        backgroundColor: theme.colors.accent,
+        borderRadius: 8,
+        paddingHorizontal: theme.spacing.md,
+    },
+    exportActionButtonDisabled: {
+        opacity: 0.6,
+    },
+    exportActionText: {
+        ...theme.typography.body,
+        fontWeight: '700' as const,
+        color: theme.colors.background,
+    },
+    exportCopyButton: {
+        minHeight: 44,
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        gap: theme.spacing.sm,
+        backgroundColor: theme.colors.background,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.accent,
+        paddingHorizontal: theme.spacing.md,
+    },
+    exportCopyText: {
+        ...theme.typography.body,
+        fontWeight: '700' as const,
+        color: theme.colors.accent,
     },
     headerSubtitle: {
         ...theme.typography.caption,

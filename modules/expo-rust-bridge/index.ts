@@ -433,6 +433,23 @@ export interface ExpoRustBridgeModule {
   getAllCategories(dbPath: string): RustResponse<{ categories: string[] }>;
 
   /**
+   * Render library export rows as a PNG file.
+   *
+   * @param entriesJson - JSON array of header, group, and book rows
+   * @param outputUri - file:// URI where the PNG should be written
+   * @returns URI of the generated image
+   */
+  createLibraryExportImage(entriesJson: string, outputUri: string): Promise<RustResponse<{ uri: string }>>;
+
+  /**
+   * Copy text to the system clipboard.
+   *
+   * @param text - Text to copy
+   * @returns Copy success status
+   */
+  copyTextToClipboard(text: string): RustResponse<{ copied: boolean }>;
+
+  /**
    * Synchronize library from Audible API to local database.
    *
    * @param dbPath - Absolute path to database file
@@ -1292,6 +1309,29 @@ function getAllCategories(dbPath: string): string[] {
 }
 
 /**
+ * Render library export rows as a PNG file.
+ *
+ * @param entriesJson - JSON array of header, group, and book rows
+ * @param outputUri - file:// URI where the PNG should be written
+ * @returns URI of the generated image
+ */
+async function createLibraryExportImage(entriesJson: string, outputUri: string): Promise<{ uri: string }> {
+  const response = await NativeModule!.createLibraryExportImage(entriesJson, outputUri);
+  return unwrapResult(response);
+}
+
+/**
+ * Copy text to the system clipboard.
+ *
+ * @param text - Text to copy
+ * @returns Copy success status
+ */
+function copyTextToClipboard(text: string): { copied: boolean } {
+  const response = NativeModule!.copyTextToClipboard(text);
+  return unwrapResult(response);
+}
+
+/**
  * Get customer information from Audible API
  *
  * @param localeCode - Audible locale
@@ -2028,6 +2068,8 @@ export {
   getBooksWithFilters,
   getAllSeries,
   getAllCategories,
+  createLibraryExportImage,
+  copyTextToClipboard,
   getCustomerInformation,
   generateDeviceSerial,
   unwrapResult,

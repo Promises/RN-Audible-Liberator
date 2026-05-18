@@ -5,11 +5,25 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
 import org.json.JSONObject
 import org.json.JSONArray
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.net.Uri
 import android.provider.DocumentsContract
 import expo.modules.rustbridge.workers.WorkerScheduler
 import java.io.File
+import java.io.FileOutputStream
+import java.net.URL
+import kotlin.math.ceil
+import kotlin.math.max
+import kotlin.math.min
 
 class ExpoRustBridgeModule : Module() {
   override fun definition() = ModuleDefinition {
@@ -291,6 +305,46 @@ class ExpoRustBridgeModule : Module() {
         put("db_path", dbPath)
       }
       parseJsonResponse(nativeGetAllCategories(params.toString()))
+    }
+
+    /**
+     * Render library export rows as a PNG file.
+     */
+    AsyncFunction("createLibraryExportImage") { entriesJson: String, outputUri: String, promise: Promise ->
+      Thread {
+        try {
+          createLibraryExportImageFile(entriesJson, outputUri)
+          promise.resolve(mapOf(
+            "success" to true,
+            "data" to mapOf("uri" to outputUri)
+          ))
+        } catch (e: Exception) {
+          promise.resolve(mapOf(
+            "success" to false,
+            "error" to "Create library export image error: ${e.message}"
+          ))
+        }
+      }.start()
+    }
+
+    /**
+     * Copy text to the system clipboard.
+     */
+    Function("copyTextToClipboard") { text: String ->
+      try {
+        val context = appContext.reactContext ?: throw Exception("Context not available")
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("LibriSync Library Export", text))
+        mapOf(
+          "success" to true,
+          "data" to mapOf("copied" to true)
+        )
+      } catch (e: Exception) {
+        mapOf(
+          "success" to false,
+          "error" to "Copy text to clipboard error: ${e.message}"
+        )
+      }
     }
 
 
@@ -1425,6 +1479,324 @@ class ExpoRustBridgeModule : Module() {
       }
       JSONObject.NULL -> null
       else -> value
+    }
+  }
+
+  private data class LibraryImageEntry(
+    val type: String,
+    val title: String = "",
+    val subtitle: String = "",
+    val authors: String = "",
+    val series: String = "",
+    val length: String = "",
+    val coverUrl: String = ""
+  )
+
+  private fun createLibraryExportImageFile(entriesJson: String, outputUri: String) {
+    val entries = parseLibraryImageEntries(entriesJson)
+    val bookCount = entries.count { it.type == "book" }
+    val maxHeight = 30_000
+    var columns = 1
+    var width = 1_200
+    var height = measureLibraryImageHeight(entries, columns)
+
+    while (height > maxHeight && columns < 10) {
+      columns += 1
+      width = max(1_200, 96 + columns * 220 + (columns - 1) * 12)
+      height = measureLibraryImageHeight(entries, columns)
+    }
+
+    if (height > maxHeight) {
+      throw Exception("Library is too large for a single PNG export ($bookCount audiobooks)")
+    }
+
+    val bitmap = Bitmap.createBitmap(width, max(1, height), Bitmap.Config.RGB_565)
+    val canvas = Canvas(bitmap)
+    canvas.drawColor(Color.rgb(236, 239, 244))
+
+    val paints = LibraryImagePaints()
+    var y = 36f
+    val pendingBooks = mutableListOf<LibraryImageEntry>()
+
+    fun flushBooks() {
+      if (pendingBooks.isEmpty()) return
+      val gap = 12f
+      val padding = 48f
+      val cardWidth = (width - padding * 2 - gap * (columns - 1)) / columns
+      val cardHeight = if (columns == 1) 150f else 172f
+
+      pendingBooks.chunked(columns).forEach { row ->
+        row.forEachIndexed { column, entry ->
+          val x = padding + column * (cardWidth + gap)
+          drawLibraryImageBook(canvas, entry, RectF(x, y, x + cardWidth, y + cardHeight), columns, paints)
+        }
+        y += cardHeight + gap
+      }
+
+      pendingBooks.clear()
+    }
+
+    entries.forEach { entry ->
+      when (entry.type) {
+        "book" -> pendingBooks.add(entry)
+        "header" -> {
+          flushBooks()
+          y = drawLibraryImageHeader(canvas, entry, y, width.toFloat(), paints)
+        }
+        "group" -> {
+          flushBooks()
+          y = drawLibraryImageGroup(canvas, entry, y, width.toFloat(), paints)
+        }
+      }
+    }
+    flushBooks()
+
+    val uri = Uri.parse(outputUri)
+    if (uri.scheme != "file") {
+      bitmap.recycle()
+      throw Exception("PNG output must be a file URI")
+    }
+
+    val outputPath = Uri.decode(uri.path ?: throw Exception("Missing output path"))
+    val outputFile = File(outputPath)
+    outputFile.parentFile?.mkdirs()
+
+    FileOutputStream(outputFile).use { stream ->
+      if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) {
+        throw Exception("Failed to encode PNG")
+      }
+    }
+    bitmap.recycle()
+  }
+
+  private fun parseLibraryImageEntries(entriesJson: String): List<LibraryImageEntry> {
+    val jsonArray = JSONArray(entriesJson)
+    return (0 until jsonArray.length()).map { index ->
+      val item = jsonArray.getJSONObject(index)
+      LibraryImageEntry(
+        type = item.optString("type"),
+        title = item.optString("title"),
+        subtitle = item.optString("subtitle"),
+        authors = item.optString("authors"),
+        series = item.optString("series"),
+        length = item.optString("length"),
+        coverUrl = item.optString("cover_url")
+      )
+    }
+  }
+
+  private fun measureLibraryImageHeight(entries: List<LibraryImageEntry>, columns: Int): Int {
+    var height = 72
+    var pendingBooks = 0
+    val cardHeight = if (columns == 1) 150 else 172
+    val gap = 12
+
+    fun flushBooks() {
+      if (pendingBooks == 0) return
+      val rows = ceil(pendingBooks.toDouble() / columns.toDouble()).toInt()
+      height += rows * (cardHeight + gap)
+      pendingBooks = 0
+    }
+
+    entries.forEach { entry ->
+      when (entry.type) {
+        "book" -> pendingBooks += 1
+        "header" -> {
+          flushBooks()
+          height += 104
+        }
+        "group" -> {
+          flushBooks()
+          height += 58
+        }
+      }
+    }
+
+    flushBooks()
+    return height + 36
+  }
+
+  private class LibraryImagePaints {
+    val title = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(46, 52, 64)
+      textSize = 32f
+      typeface = Typeface.DEFAULT_BOLD
+    }
+    val subtitle = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(76, 86, 106)
+      textSize = 20f
+    }
+    val group = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(46, 52, 64)
+      textSize = 21f
+      typeface = Typeface.DEFAULT_BOLD
+    }
+    val bookTitle = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(46, 52, 64)
+      textSize = 18f
+      typeface = Typeface.DEFAULT_BOLD
+    }
+    val metadata = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(76, 86, 106)
+      textSize = 15f
+    }
+    val length = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(94, 129, 172)
+      textSize = 15f
+      typeface = Typeface.DEFAULT_BOLD
+    }
+    val card = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.WHITE
+      style = Paint.Style.FILL
+    }
+    val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(216, 222, 233)
+      style = Paint.Style.STROKE
+      strokeWidth = 1f
+    }
+    val accent = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(136, 192, 208)
+      style = Paint.Style.FILL
+    }
+    val coverPlaceholder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(216, 222, 233)
+      style = Paint.Style.FILL
+    }
+    val coverText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(76, 86, 106)
+      textSize = 14f
+      textAlign = Paint.Align.CENTER
+      typeface = Typeface.DEFAULT_BOLD
+    }
+  }
+
+  private fun drawLibraryImageHeader(
+    canvas: Canvas,
+    entry: LibraryImageEntry,
+    y: Float,
+    width: Float,
+    paints: LibraryImagePaints
+  ): Float {
+    canvas.drawText(entry.title, 48f, y + 36f, paints.title)
+    canvas.drawText(entry.subtitle, 48f, y + 68f, paints.subtitle)
+    canvas.drawRect(48f, y + 92f, width - 48f, y + 96f, paints.accent)
+    return y + 116f
+  }
+
+  private fun drawLibraryImageGroup(
+    canvas: Canvas,
+    entry: LibraryImageEntry,
+    y: Float,
+    width: Float,
+    paints: LibraryImagePaints
+  ): Float {
+    val rect = RectF(48f, y, width - 48f, y + 42f)
+    canvas.drawRoundRect(rect, 8f, 8f, paints.accent)
+    canvas.drawText(entry.title, 64f, y + 28f, paints.group)
+    return y + 58f
+  }
+
+  private fun drawLibraryImageBook(
+    canvas: Canvas,
+    entry: LibraryImageEntry,
+    rect: RectF,
+    columns: Int,
+    paints: LibraryImagePaints
+  ) {
+    canvas.drawRoundRect(rect, 8f, 8f, paints.card)
+    canvas.drawRoundRect(rect, 8f, 8f, paints.border)
+
+    val innerPadding = if (columns == 1) 16f else 12f
+    val coverSize = if (columns == 1) 112f else min(76f, rect.width() * 0.34f)
+    val coverRect = RectF(
+      rect.left + innerPadding,
+      rect.top + innerPadding,
+      rect.left + innerPadding + coverSize,
+      rect.top + innerPadding + coverSize
+    )
+
+    val coverBitmap = loadCoverBitmap(entry.coverUrl, coverSize.toInt())
+    if (coverBitmap != null) {
+      canvas.drawBitmap(coverBitmap, null, coverRect, null)
+      coverBitmap.recycle()
+    } else {
+      canvas.drawRoundRect(coverRect, 6f, 6f, paints.coverPlaceholder)
+      canvas.drawText("AUDIO", coverRect.centerX(), coverRect.centerY() + 5f, paints.coverText)
+    }
+
+    val textLeft = coverRect.right + innerPadding
+    val textWidth = rect.right - textLeft - innerPadding
+    var textY = rect.top + innerPadding + 20f
+    val titleLines = if (columns == 1) 2 else 3
+
+    textY = drawWrappedText(canvas, entry.title, textLeft, textY, textWidth, paints.bookTitle, titleLines, 22f)
+    textY = drawWrappedText(canvas, entry.authors, textLeft, textY + 4f, textWidth, paints.metadata, 1, 18f)
+    if (entry.series.isNotBlank()) {
+      textY = drawWrappedText(canvas, entry.series, textLeft, textY + 2f, textWidth, paints.metadata, 1, 18f)
+    }
+    canvas.drawText(entry.length, textLeft, textY + 20f, paints.length)
+  }
+
+  private fun drawWrappedText(
+    canvas: Canvas,
+    text: String,
+    x: Float,
+    y: Float,
+    maxWidth: Float,
+    paint: Paint,
+    maxLines: Int,
+    lineHeight: Float
+  ): Float {
+    if (text.isBlank() || maxWidth <= 0f) return y
+
+    var remaining = text.trim()
+    var currentY = y
+    var lines = 0
+
+    while (remaining.isNotEmpty() && lines < maxLines) {
+      var count = paint.breakText(remaining, true, maxWidth, null)
+      if (count <= 0) count = 1
+
+      var end = count
+      if (count < remaining.length) {
+        val lastSpace = remaining.substring(0, count).lastIndexOf(' ')
+        if (lastSpace > 0) end = lastSpace
+      }
+
+      var line = remaining.substring(0, end).trim()
+      remaining = remaining.drop(end).trimStart()
+
+      if (remaining.isNotEmpty() && lines == maxLines - 1) {
+        while (paint.measureText("$line...") > maxWidth && line.length > 1) {
+          line = line.dropLast(1)
+        }
+        line = "$line..."
+        remaining = ""
+      }
+
+      canvas.drawText(line, x, currentY, paint)
+      currentY += lineHeight
+      lines += 1
+    }
+
+    return currentY
+  }
+
+  private fun loadCoverBitmap(urlString: String, size: Int): Bitmap? {
+    if (urlString.isBlank() || size <= 0) return null
+
+    return try {
+      val connection = URL(urlString).openConnection()
+      connection.connectTimeout = 2_500
+      connection.readTimeout = 4_000
+      connection.getInputStream().use { stream ->
+        val original = BitmapFactory.decodeStream(stream) ?: return null
+        val scaled = Bitmap.createScaledBitmap(original, size, size, true)
+        if (scaled != original) original.recycle()
+        scaled
+      }
+    } catch (_: Exception) {
+      null
     }
   }
 
